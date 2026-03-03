@@ -1,0 +1,21 @@
+# Local overrides
+settings.local.json
+.forge-meta.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Node
+node_modules/
+
+# Temp
+*.tmp
+*.bak

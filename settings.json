@@ -1,0 +1,114 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(echo *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(diff *)",
+      "Bash(sort *)",
+      "Bash(uniq *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(touch *)",
+      "Bash(chmod +x *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(make *)",
+      "Bash(cmake *)",
+      "Bash(jq *)",
+      "Bash(gh *)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "TaskCreate",
+      "TaskUpdate",
+      "TaskList",
+      "TaskGet",
+      "mcp__memory__*",
+      "mcp__context7__*",
+      "mcp__github__*",
+      "mcp__fetch__*",
+      "mcp__jina-reader__*"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Bash(sudo rm -rf *)",
+      "Bash(sudo chmod 777 *)",
+      "Bash(eval *)",
+      "Bash(*| bash)",
+      "Bash(*| sh)",
+      "Bash(curl *| bash*)",
+      "Bash(curl *| sh*)",
+      "Bash(wget *| bash*)",
+      "Bash(wget *| sh*)",
+      "Bash(git push --force *main*)",
+      "Bash(git push --force *master*)",
+      "Bash(git push -f *main*)",
+      "Bash(git push -f *master*)",
+      "Bash(npm publish*)",
+      "Bash(pip install --user*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": ["~/.claude/hooks/remote-command-guard.sh"]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": ["~/.claude/hooks/output-secret-filter.sh"]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          "~/.claude/hooks/code-quality-reminder.sh",
+          "~/.claude/hooks/security-auto-trigger.sh"
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": ["~/.claude/hooks/build-log-capture.sh"]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          "~/.claude/hooks/context-sync-suggest.sh",
+          "~/.claude/hooks/forge-update-check.sh"
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": ["~/.claude/hooks/session-wrap-suggest.sh"]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": ["~/.claude/hooks/task-completed.sh"]
+      }
+    ]
+  }
+}
