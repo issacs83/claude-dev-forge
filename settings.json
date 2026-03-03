@@ -72,43 +72,81 @@
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": ["~/.claude/hooks/remote-command-guard.sh"]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/remote-command-guard.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Bash",
-        "hooks": ["~/.claude/hooks/output-secret-filter.sh"]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/output-secret-filter.sh"
+          }
+        ]
       },
       {
         "matcher": "Edit|Write",
         "hooks": [
-          "~/.claude/hooks/code-quality-reminder.sh",
-          "~/.claude/hooks/security-auto-trigger.sh"
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/code-quality-reminder.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/security-auto-trigger.sh"
+          }
         ]
       },
       {
         "matcher": "Bash",
-        "hooks": ["~/.claude/hooks/build-log-capture.sh"]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/build-log-capture.sh"
+          }
+        ]
       }
     ],
     "SessionStart": [
       {
         "hooks": [
-          "~/.claude/hooks/context-sync-suggest.sh",
-          "~/.claude/hooks/forge-update-check.sh"
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/context-sync-suggest.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/forge-update-check.sh"
+          }
         ]
       }
     ],
     "Stop": [
       {
-        "hooks": ["~/.claude/hooks/session-wrap-suggest.sh"]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-wrap-suggest.sh"
+          }
+        ]
       }
     ],
     "TaskCompleted": [
       {
-        "hooks": ["~/.claude/hooks/task-completed.sh"]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/task-completed.sh"
+          }
+        ]
       }
     ]
-  }
+  },
+  "skipDangerousModePermissionPrompt": true
 }
