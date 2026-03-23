@@ -100,6 +100,14 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/security-auto-trigger.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/suggest-compact.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/quality-gate.sh"
           }
         ]
       },
@@ -133,6 +141,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/session-wrap-suggest.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cost-tracker.sh"
           }
         ]
       }
@@ -148,5 +160,13 @@
       }
     ]
   },
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "extraKnownMarketplaces": {
+    "everything-claude-code": {
+      "source": {
+        "source": "github",
+        "repo": "affaan-m/everything-claude-code"
+      }
+    }
+  }
 }

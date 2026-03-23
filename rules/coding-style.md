@@ -38,3 +38,15 @@
 - No magic numbers in code
 - Extract to named constants
 - Group related constants in a dedicated file/module
+
+## C++ Specific
+- Header guards: prefer `#pragma once`
+- RAII: mandatory for resource management (files, locks, memory, HW handles)
+- Smart pointers: `std::unique_ptr` preferred, raw pointers for non-owning references only
+- `const` correctness: use `const` wherever possible (params, methods, variables)
+- Move semantics: prefer `std::move` for large objects, avoid unnecessary copies
+- Namespaces: use project-level namespace, avoid `using namespace std`
+- Embedded constraints: consider `-fno-exceptions`, `-fno-rtti` environments
+- Initialization: use brace initialization `{}`, avoid narrowing conversions
+- Casts: use `static_cast<>`, never C-style casts
+- Threads: prefer RAII wrappers (`std::lock_guard`, `std::unique_lock`)
