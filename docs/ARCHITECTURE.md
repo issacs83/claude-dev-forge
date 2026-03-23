@@ -10,9 +10,9 @@
 │                                              │
 │  agents/     21 agent definitions            │
 │  commands/   24 slash commands               │
-│  skills/     8 multi-step workflows          │
-│  hooks/      9 event-driven scripts          │
-│  rules/      8 coding standards              │
+│  skills/     17 multi-step workflows         │
+│  hooks/      12 event-driven scripts         │
+│  rules/      12 coding standards             │
 │  settings.json   permissions + hook bindings │
 │  mcp-servers.json   5 MCP servers            │
 └───────────────────┬─────────────────────────┘
@@ -72,8 +72,11 @@ PostToolUse(Bash) ─→ output-secret-filter
 
 PostToolUse(Edit/Write) ─→ code-quality-reminder
                          ─→ security-auto-trigger
+                         ─→ suggest-compact
+                         ─→ quality-gate
 
 Stop ─→ session-wrap-suggest
+     ─→ cost-tracker
 
 TaskCompleted ─→ task-completed
 ```
