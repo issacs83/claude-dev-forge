@@ -12,7 +12,17 @@ const DASHBOARD_URL = 'http://localhost:7700';
 const BRIDGE_DATA = path.join(__dirname, 'data', 'telegram-users.json');
 
 // --- Bot Setup ---
-const bot = new TelegramBot(TOKEN, { polling: true });
+const bot = new TelegramBot(TOKEN, {
+  polling: {
+    interval: 2000,
+    autoStart: true,
+    params: { timeout: 10 }
+  },
+  request: {
+    family: 4 // Force IPv4
+  }
+});
+bot.on('polling_error', () => {}); // Suppress polling error logs
 console.log('\n  Jun Dashboard Bot (@JunDash_bot)');
 console.log('  ● Telegram bridge started\n');
 
