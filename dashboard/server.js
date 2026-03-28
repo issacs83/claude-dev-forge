@@ -324,14 +324,25 @@ app.post('/api/sessions/start', (req, res) => {
     const cmd = `tmux new-window -t work -n "${safeName}" "cd ${workDir} && claude" 2>/dev/null`;
     exec(cmd);
 
-    // If projectId, send initial context after claude starts
-    if (projectId) {
+    // Send dashboard integration protocol to Claude session
+    if (projectId || projectName) {
       setTimeout(() => {
         try {
-          const initMsg = `이 프로젝트는 Jun.AI Dashboard(http://58.29.21.11:7700)에 등록된 "${projectName}" 프로젝트입니다. 대시보드 API를 통해 진행 상황을 보고하세요.`;
+          const initMsg = [
+            `[Jun.AI Dashboard 연동] 프로젝트: "${projectName}"`,
+            `대시보드 URL: http://58.29.21.11:7700`,
+            `이 세션에서 작업할 때 반드시 아래 API로 진행 상황을 보고하세요:`,
+            ``,
+            `작업 시작: curl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_start","agent":"에이전트명","task":"작업내용"}'`,
+            `진행률: curl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_progress","agent":"에이전트명","progress":50,"message":"진행내용"}'`,
+            `완료: curl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_complete","agent":"에이전트명","task":"작업내용"}'`,
+            `응답: curl -s -X POST http://58.29.21.11:7700/api/tasks/태스크ID/comments -H 'Content-Type: application/json' -d '{"from":"에이전트명","message":"응답내용"}'`,
+            ``,
+            `사용자가 대시보드 채팅으로 메시지를 보내면 이 세션으로 전달됩니다. 응답은 위 comments API로 보내주세요.`
+          ].join('\\n');
           execSync(`tmux send-keys -t work:${safeName} "${initMsg}" Enter 2>/dev/null`);
         } catch (e) { /* ignore */ }
-      }, 3000);
+      }, 4000);
     }
 
     res.json({ ok: true, action: 'created', window: safeName, message: `새 세션 "${safeName}" 시작됨` });
@@ -357,12 +368,24 @@ app.post('/api/sessions/send', (req, res) => {
   const { windowName, message } = req.body;
   if (!windowName || !message) return res.status(400).json({ error: 'windowName and message required' });
   try {
-    // Escape double quotes in message
     const escaped = message.replace(/"/g, '\\"');
     execSync(`tmux send-keys -t work:${windowName} "${escaped}" Enter 2>/dev/null`);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Get live terminal output from a tmux session (capture-pane)
+app.get('/api/sessions/:name/output', (req, res) => {
+  try {
+    const output = execSync(
+      `tmux capture-pane -t work:${req.params.name} -p -S -50 2>/dev/null`,
+      { encoding: 'utf-8', maxBuffer: 1024 * 1024 }
+    );
+    res.json({ window: req.params.name, output, timestamp: new Date().toISOString() });
+  } catch (e) {
+    res.status(404).json({ error: 'Session not found or no output' });
   }
 });
 

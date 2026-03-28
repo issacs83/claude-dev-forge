@@ -107,6 +107,21 @@
     <div class="panel-body" id="sessionList"></div>
   </div>
 
+  <!-- Terminal Viewer Panel -->
+  <div class="agent-panel" id="terminalPanel">
+    <div class="panel-header" onclick="togglePanel('terminalPanel')">
+      <span>Terminal Output</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="terminalSessionSelect" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:12px" onchange="loadTerminalOutput()">
+          <option value="">-- select session --</option>
+        </select>
+        <button onclick="loadTerminalOutput()" style="background:var(--accent-blue);color:white;border:none;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer">Refresh</button>
+        <span class="toggle-icon">▼</span>
+      </div>
+    </div>
+    <div class="panel-body" id="terminalOutput" style="font-family:monospace;font-size:12px;background:#0a0e14;color:#b3b1ad;white-space:pre-wrap;max-height:300px;overflow-y:auto;padding:12px"></div>
+  </div>
+
   <!-- Agent Monitor Panel -->
   <div class="agent-panel" id="agentPanel">
     <div class="panel-header" onclick="togglePanel('agentPanel')">

@@ -676,12 +676,14 @@ async function sendComment(taskId) {
   const input = document.getElementById('commentInput');
   const msg = input.value.trim();
   if (!msg) return;
-  await fetch('/api/tasks/' + taskId + '/comments', {
+  const res = await fetch('/api/tasks/' + taskId + '/comments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ from: 'user', message: msg })
   });
   input.value = '';
+  // Show delivery notification
+  showInfoNotification('메시지 전달', `Claude 세션에 전달됨: "${msg.substring(0, 30)}..."`);
   // Refresh the modal
   document.querySelector('.task-modal-overlay')?.remove();
   openTaskDetail(taskId);
@@ -1353,6 +1355,58 @@ async function stopSession(windowName) {
 
 // Refresh sessions every 5s
 setInterval(renderSessions, 5000);
+
+// --- Terminal Viewer ---
+let autoRefreshTerminal = null;
+
+async function loadTerminalOutput() {
+  const sel = document.getElementById('terminalSessionSelect');
+  const name = sel.value;
+  const output = document.getElementById('terminalOutput');
+  if (!name) {
+    output.textContent = 'Select a session to view terminal output.';
+    if (autoRefreshTerminal) { clearInterval(autoRefreshTerminal); autoRefreshTerminal = null; }
+    return;
+  }
+  try {
+    const res = await fetch('/api/sessions/' + encodeURIComponent(name) + '/output');
+    const data = await res.json();
+    output.textContent = data.output || '(empty)';
+    output.scrollTop = output.scrollHeight;
+  } catch (e) {
+    output.textContent = 'Failed to load output.';
+  }
+
+  // Auto-refresh every 3s while a session is selected
+  if (autoRefreshTerminal) clearInterval(autoRefreshTerminal);
+  autoRefreshTerminal = setInterval(async () => {
+    const currentName = document.getElementById('terminalSessionSelect').value;
+    if (!currentName) { clearInterval(autoRefreshTerminal); autoRefreshTerminal = null; return; }
+    try {
+      const res = await fetch('/api/sessions/' + encodeURIComponent(currentName) + '/output');
+      const data = await res.json();
+      const el = document.getElementById('terminalOutput');
+      const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+      el.textContent = data.output || '(empty)';
+      if (wasAtBottom) el.scrollTop = el.scrollHeight;
+    } catch (e) { /* ignore */ }
+  }, 3000);
+}
+
+// Update terminal session dropdown when sessions change
+async function updateTerminalSelect() {
+  const sel = document.getElementById('terminalSessionSelect');
+  if (!sel) return;
+  const currentVal = sel.value;
+  try {
+    const res = await fetch('/api/sessions');
+    const sessions = await res.json();
+    sel.innerHTML = '<option value="">-- select session --</option>' +
+      sessions.map(s => `<option value="${s.name}" ${s.name === currentVal ? 'selected' : ''}>${s.name} (${s.command})</option>`).join('');
+  } catch (e) { /* ignore */ }
+}
+setInterval(updateTerminalSelect, 5000);
+setTimeout(updateTerminalSelect, 1000);
 
 function fetchAndRender() {
   fetch('/api/status')
