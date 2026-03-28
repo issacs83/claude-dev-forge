@@ -276,7 +276,7 @@ async function moveTask(taskId, newStatus) {
   });
   const updated = await res.json();
 
-  // If moved to in_progress → auto-dispatch agent
+  // If moved to in_progress → dispatch agent + send to Claude session
   if (newStatus === 'in_progress' && updated.agent) {
     await fetch('/api/events', {
       method: 'POST',
@@ -289,9 +289,10 @@ async function moveTask(taskId, newStatus) {
         timestamp: new Date().toISOString()
       })
     });
-    showInfoNotification('에이전트 실행', `"${updated.title}" → ${updated.agent} 에이전트가 작업을 시작합니다.`);
+    // Send task to Claude session via tmux
+    await dispatchToClaudeSession(updated);
+    showInfoNotification('에이전트 실행', `"${updated.title}" → ${updated.agent} 에이전트에게 전달됨`);
   } else if (newStatus === 'in_progress' && !updated.agent) {
-    // No agent assigned — show assign modal
     showAgentAssignForTask(taskId);
   }
 
@@ -381,8 +382,76 @@ async function assignAndDispatch(taskId, agentName) {
     })
   });
 
-  showInfoNotification('에이전트 실행', `"${task ? task.title : ''}" → ${agentName} 에이전트가 작업을 시작합니다.`);
+  // Send task to Claude session
+  const updated = { ...(task || {}), agent: agentName };
+  await dispatchToClaudeSession(updated);
+
+  showInfoNotification('에이전트 실행', `"${task ? task.title : ''}" → ${agentName} 에이전트에게 전달됨`);
   fetchAndRender();
+}
+
+// --- Dispatch to Claude Session via tmux ---
+async function dispatchToClaudeSession(task) {
+  if (!task || !task.title) return;
+
+  // Find the matching Claude session
+  let targetWindow = null;
+  try {
+    const res = await fetch('/api/sessions');
+    const sessions = await res.json();
+
+    // Find project-specific session first (jun-xxx)
+    const project = (state.projects || []).find(p => p.id === task.project);
+    if (project) {
+      const safeName = 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 20);
+      targetWindow = sessions.find(s => s.name === safeName);
+    }
+
+    // Fallback: any claude session
+    if (!targetWindow) {
+      targetWindow = sessions.find(s => s.command === 'claude');
+    }
+  } catch (e) { /* ignore */ }
+
+  if (!targetWindow) {
+    // No session found — start one
+    const project = (state.projects || []).find(p => p.id === task.project);
+    await fetch('/api/sessions/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectName: project ? project.name : 'task',
+        projectPath: '/home/issacs/work'
+      })
+    });
+    // Wait for session to start
+    await new Promise(r => setTimeout(r, 3000));
+    const res2 = await fetch('/api/sessions');
+    const sessions2 = await res2.json();
+    targetWindow = sessions2.find(s => s.command === 'claude' && s.name.startsWith('jun-'));
+  }
+
+  if (targetWindow) {
+    // Build instruction message for Claude
+    const agent = task.agent || '';
+    const objective = task.objective || task.description || '';
+    const phase = task.phase !== undefined ? `Phase ${task.phase}` : '';
+
+    let instruction = `[Jun.AI 대시보드 태스크 전달] "${task.title}"`;
+    if (agent) instruction += ` — ${agent} 에이전트로 실행해주세요.`;
+    if (phase) instruction += ` (${phase})`;
+    if (objective) instruction += ` 목표: ${objective}`;
+    instruction += ` 완료 후 대시보드에 결과를 보고해주세요: curl -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_complete","agent":"${agent}","task":"${task.title.replace(/'/g, '')}"}'`;
+
+    await fetch('/api/sessions/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        windowName: targetWindow.name,
+        message: instruction
+      })
+    });
+  }
 }
 
 // --- Card Click (full detail modal) ---
