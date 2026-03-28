@@ -1631,7 +1631,25 @@ async function openFile(url, fileName) {
 
 // --- Project Chat ---
 let _chatOpen = false;
-let _chatPendingFiles = []; // [{ data, fileName, type }]
+let _chatPendingFiles = [];
+// Restore pending state from sessionStorage
+try {
+  const saved = sessionStorage.getItem('jun_chat_pending');
+  if (saved) {
+    const p = JSON.parse(saved);
+    _chatPendingFiles = p.files || [];
+    _chatPendingText = p.text || null;
+  }
+} catch(e) {}
+
+function saveChatPending() {
+  try {
+    sessionStorage.setItem('jun_chat_pending', JSON.stringify({
+      files: _chatPendingFiles,
+      text: _chatPendingText
+    }));
+  } catch(e) {}
+}
 
 function toggleChat() {
   _chatOpen = !_chatOpen;
@@ -1640,6 +1658,11 @@ function toggleChat() {
   if (_chatOpen) {
     loadChatHistory();
     updateChatConnStatus();
+    // Restore input + attachments
+    const input = document.getElementById('chatInput');
+    const savedInput = sessionStorage.getItem('jun_chat_input');
+    if (input && savedInput) { input.value = savedInput; autoResizeChatInput(input); }
+    if (_chatPendingFiles.length || _chatPendingText) updateChatPreview();
   }
 }
 
@@ -1830,6 +1853,8 @@ async function sendChatMessage() {
     }
 
     input.value = '';
+    sessionStorage.removeItem('jun_chat_pending');
+    sessionStorage.removeItem('jun_chat_input');
     await loadChatHistory();
 
     // Show "waiting for response" after send
@@ -1852,10 +1877,11 @@ function handleChatKeydown(event) {
   }
 }
 
-// Auto-resize textarea
+// Auto-resize textarea + save input
 function autoResizeChatInput(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  try { sessionStorage.setItem('jun_chat_input', el.value); } catch(e) {}
 }
 
 // Paste: image or large text
@@ -1889,8 +1915,9 @@ function handleChatPaste(event) {
   }
 }
 
-// Pending attachments
+// Pending attachments (restored from sessionStorage above)
 let _chatPendingText = null;
+try { const s = sessionStorage.getItem('jun_chat_pending'); if (s) _chatPendingText = JSON.parse(s).text || null; } catch(e) {}
 
 function updateChatPreview() {
   const preview = document.getElementById('chatPreview');
@@ -1942,6 +1969,7 @@ function updateChatPreview() {
 
   html += '</div>';
   preview.innerHTML = html;
+  saveChatPending();
 }
 
 // Drag & drop file(s) to chat input area
