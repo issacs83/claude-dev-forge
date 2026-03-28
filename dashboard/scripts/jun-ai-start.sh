@@ -73,7 +73,7 @@ for p in data.get('projects', []):
         # Check if this tmux window already exists
         if ! tmux list-windows -t work -F '#{window_name}' 2>/dev/null | grep -q "^${session_name}$"; then
             if [ -d "$project_dir" ]; then
-                tmux new-window -t work -n "$session_name" "cd $project_dir && claude --resume"
+                tmux new-window -t work -n "$session_name" "cd $project_dir && claude --resume --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official"
                 echo "[$(date)] Claude session restored: $session_name → $project_dir" >> "$LOG_DIR/startup.log"
                 sleep 2
             fi
