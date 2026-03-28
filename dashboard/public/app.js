@@ -2689,11 +2689,10 @@ function initTerminal() {
       }).catch(() => {});
       return false;
     }
-    // Shift+Enter: newline without submit (sends Ctrl+J which is literal newline)
+    // Shift+Enter: open Vim editor for multiline input (Claude CLI: Ctrl+G)
     if (ev.shiftKey && ev.key === 'Enter' && ev.type === 'keydown') {
-      // In Claude CLI, use Ctrl+J for literal newline in input
       if (termWs && termWs.readyState === WebSocket.OPEN) {
-        termWs.send('\x0a'); // Ctrl+J = literal line feed
+        termWs.send('\x07'); // Ctrl+G = open Vim editor in Claude CLI
       }
       return false;
     }
