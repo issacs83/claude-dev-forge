@@ -245,33 +245,34 @@ function renderCard(task) {
 let _draggedTaskId = null;
 
 // Global drag event listeners on the kanban board
-document.addEventListener('DOMContentLoaded', () => {
-  initDragAndDrop();
-});
+// Initialize drag-and-drop + click — runs immediately since script is at body end
+let _isDragging = false;
 
-function initDragAndDrop() {
+(function initDragAndDrop() {
   const board = document.getElementById('kanbanBoard');
   if (!board) { setTimeout(initDragAndDrop, 200); return; }
 
-  // Dragstart — capture which card is being dragged
+  // Dragstart
   board.addEventListener('dragstart', (e) => {
     const card = e.target.closest('.task-card');
     if (!card) return;
     _draggedTaskId = card.dataset.id;
+    _isDragging = true;
     card.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', _draggedTaskId);
   });
 
-  // Dragend — cleanup
+  // Dragend
   board.addEventListener('dragend', (e) => {
     const card = e.target.closest('.task-card');
     if (card) card.classList.remove('dragging');
     document.querySelectorAll('.kanban-column').forEach(c => c.classList.remove('drop-target'));
     _draggedTaskId = null;
+    setTimeout(() => { _isDragging = false; }, 100);
   });
 
-  // Dragover — allow drop on columns
+  // Dragover
   board.addEventListener('dragover', (e) => {
     const col = e.target.closest('.kanban-column');
     if (!col) return;
@@ -280,7 +281,7 @@ function initDragAndDrop() {
     col.classList.add('drop-target');
   });
 
-  // Dragleave — remove highlight
+  // Dragleave
   board.addEventListener('dragleave', (e) => {
     const col = e.target.closest('.kanban-column');
     if (col && !col.contains(e.relatedTarget)) {
@@ -288,7 +289,7 @@ function initDragAndDrop() {
     }
   });
 
-  // Drop — move the task
+  // Drop
   board.addEventListener('drop', (e) => {
     e.preventDefault();
     const col = e.target.closest('.kanban-column');
@@ -300,14 +301,17 @@ function initDragAndDrop() {
     if (newStatus) moveTask(taskId, newStatus);
   });
 
-  // Card click — open detail (but not during drag)
+  // Click — open task detail modal
   board.addEventListener('click', (e) => {
-    if (_draggedTaskId) return; // ignore clicks during drag
+    if (_isDragging) return;
     const card = e.target.closest('.task-card');
     if (!card) return;
-    openTaskDetail(card.dataset.id);
+    const taskId = card.dataset.id;
+    if (taskId) openTaskDetail(taskId);
   });
-}
+
+  console.log('Jun.AI: Drag-and-drop + click initialized');
+})();
 
 async function moveTask(taskId, newStatus) {
   const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
@@ -503,9 +507,13 @@ async function dispatchToClaudeSession(task) {
 
 // --- Card Click (full detail modal) ---
 async function openTaskDetail(taskId) {
-  const res = await fetch('/api/tasks/' + taskId);
-  const data = await res.json();
-  if (!data || !data.id) return;
+  if (!taskId) return;
+  let data;
+  try {
+    const res = await fetch('/api/tasks/' + taskId);
+    data = await res.json();
+    if (!data || !data.id) { console.error('Task not found:', taskId); return; }
+  } catch (e) { console.error('Failed to load task:', e); return; }
 
   const task = data;
   const history = data.history || [];
