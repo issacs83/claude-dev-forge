@@ -552,6 +552,67 @@ body {
 }
 .close-btn:hover { background: var(--border); }
 
+/* Notification Toast (우측 상단 고정) */
+.notification-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+  pointer-events: auto;
+}
+.notification {
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-blue);
+  border-left: 4px solid var(--accent-blue);
+  border-radius: var(--radius);
+  padding: 16px;
+  animation: slideIn 0.3s ease-out;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.notification.success { border-color: var(--accent-green); border-left-color: var(--accent-green); }
+.notification.warning { border-color: var(--accent-orange); border-left-color: var(--accent-orange); }
+.notification-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.notification-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.notification-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.notification-actions button {
+  padding: 6px 16px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.btn-yes { background: var(--accent-blue); color: white; }
+.btn-yes:hover { background: #2563eb; }
+.btn-no { background: var(--bg-hover); color: var(--text-secondary); }
+.btn-dismiss { background: transparent; color: var(--text-muted); font-size: 12px; }
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; transform: translateX(50px); }
+}
+
 /* Health status badges */
 .health-badge {
   font-size: 11px;

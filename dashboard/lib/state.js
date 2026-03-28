@@ -109,14 +109,17 @@ class StateManager {
         break;
 
       case 'document_created':
-        this.documents.push({
-          file: event.file,
-          format: event.format,
-          phase: event.phase,
-          taskId: event.taskId || null,
-          category: event.category || this._inferCategory(event.format, event.file),
-          createdAt: event.timestamp
-        });
+        // Only add if file field exists
+        if (event.file) {
+          this.documents.push({
+            file: event.file,
+            format: event.format || event.file.split('.').pop() || 'unknown',
+            phase: event.phase,
+            taskId: event.taskId || null,
+            category: event.category || this._inferCategory(event.format, event.file),
+            createdAt: event.timestamp
+          });
+        }
         break;
 
       case 'debug_loop':
