@@ -76,6 +76,41 @@ function renderProjects() {
   } else {
     delBtn.style.display = 'none';
   }
+
+  // Team lead status in header
+  const tlEl = document.getElementById('teamLeadStatus');
+  if (tlEl) {
+    const agents = state.agents || {};
+    if (activeProjectFilter === 'all') {
+      const running = Object.values(agents).filter(a => a.status === 'running');
+      const total = Object.keys(agents).length;
+      if (running.length > 0) {
+        tlEl.innerHTML = `<span style="color:var(--accent-orange)">🔄 ${running.length}/${total} 에이전트 활동 중</span>`;
+      } else if (total > 0) {
+        tlEl.innerHTML = `<span style="color:var(--accent-green)">✅ ${total} 에이전트 대기</span>`;
+      } else {
+        tlEl.innerHTML = '';
+      }
+    } else {
+      const project = projects.find(p => p.id === activeProjectFilter);
+      if (project) {
+        const tasks = (state.tasks || []).filter(t => t.project === activeProjectFilter);
+        const projectAgentNames = [...new Set(tasks.map(t => t.agent).filter(Boolean))];
+        const runningAgents = projectAgentNames.filter(a => agents[a] && agents[a].status === 'running');
+        const doneCount = tasks.filter(t => t.status === 'done').length;
+        const totalCount = tasks.length;
+        const pct = totalCount > 0 ? Math.round(doneCount / totalCount * 100) : 0;
+
+        if (runningAgents.length > 0) {
+          tlEl.innerHTML = `<span style="color:var(--accent-orange)">🔄 ${escapeHtml(project.name)}: ${runningAgents.join(', ')} 작업 중 (${pct}%)</span>`;
+        } else if (pct === 100) {
+          tlEl.innerHTML = `<span style="color:var(--accent-green)">✅ ${escapeHtml(project.name)}: 완료 (${doneCount}/${totalCount})</span>`;
+        } else {
+          tlEl.innerHTML = `<span style="color:var(--text-muted)">⏸ ${escapeHtml(project.name)}: 대기 중 (${pct}%)</span>`;
+        }
+      }
+    }
+  }
 }
 
 function renderStats() {
@@ -980,12 +1015,24 @@ function renderDocuments() {
   }
 
   if (!docs.length) {
+    // Check if any agents are running (producing output)
+    const agents = state.agents || {};
+    const runningAgents = Object.values(agents).filter(a => a.status === 'running');
+    let statusMsg = '';
+    if (runningAgents.length > 0) {
+      const names = runningAgents.map(a => a.name).join(', ');
+      statusMsg = `<div style="color:var(--accent-orange);text-align:center;padding:8px;font-size:12px;margin-top:8px">
+        <span class="spinner" style="margin-right:4px"></span>
+        ${names} 에이전트가 작업 중 — 완료 시 산출물이 여기에 표시됩니다
+      </div>`;
+    }
+
     const filterMsg = activeProjectFilter !== 'all'
       ? '선택된 프로젝트에 산출물 없음'
       : categoryFilter !== 'all'
         ? `"${categoryFilter}" 카테고리 산출물 없음`
-        : '산출물 없음 — 에이전트가 작업을 완료하면 여기에 표시됩니다';
-    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">${filterMsg}</div>`;
+        : '산출물 없음';
+    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">${filterMsg}${statusMsg}</div>`;
     return;
   }
 
