@@ -1734,14 +1734,18 @@ function renderChatMessages(messages, tabsHtml) {
       if (m.message) content = `<div style="font-size:13px;margin-bottom:4px">${escapeHtml(m.message)}</div>` + content;
     } else {
       const msgText = m.message || '';
+      const msgId = 'msg-' + m.id;
       if (msgText.length > 500) {
-        const msgId = 'msg-' + m.id;
         content = `<div style="font-size:13px;white-space:pre-wrap;word-break:break-word">
-          <div id="${msgId}-short">${escapeHtml(msgText.substring(0, 300))}...
-            <button onclick="document.getElementById('${msgId}-short').style.display='none';document.getElementById('${msgId}-full').style.display='block'" style="background:none;border:none;color:var(--accent-blue);cursor:pointer;font-size:11px;padding:0;margin-left:4px">더보기 (${msgText.length.toLocaleString()}자)</button>
+          <div id="${msgId}-short">${escapeHtml(msgText.substring(0, 300))}...<br>
+            <button onclick="document.getElementById('${msgId}-short').style.display='none';document.getElementById('${msgId}-full').style.display='block'" style="background:none;border:none;color:var(--accent-blue);cursor:pointer;font-size:11px;padding:2px 0;margin-top:4px">▼ 더보기 (${msgText.length.toLocaleString()}자)</button>
           </div>
-          <div id="${msgId}-full" style="display:none">${escapeHtml(msgText)}
-            <button onclick="document.getElementById('${msgId}-full').style.display='none';document.getElementById('${msgId}-short').style.display='block'" style="background:none;border:none;color:var(--accent-blue);cursor:pointer;font-size:11px;padding:0;margin-left:4px">접기</button>
+          <div id="${msgId}-full" style="display:none">${escapeHtml(msgText)}<br>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button onclick="document.getElementById('${msgId}-full').style.display='none';document.getElementById('${msgId}-short').style.display='block'" style="background:none;border:none;color:var(--accent-blue);cursor:pointer;font-size:11px;padding:2px 0">▲ 접기</button>
+              <button onclick="editChatMessage('${msgId}',this)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 0">✏ 편집</button>
+              <button onclick="navigator.clipboard.writeText(document.getElementById('${msgId}-text').innerText)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 0">📋 복사</button>
+            </div>
           </div>
         </div>`;
       } else {
@@ -1768,7 +1772,17 @@ async function sendChatMessage() {
   const msg = input.value.trim();
   const pid = _activeChatProject || (state.projects && state.projects[0] ? state.projects[0].id : '1');
 
-  if (!msg && !_chatPendingFile) return;
+  if (!msg && !_chatPendingFile && !_chatPendingText) return;
+
+  // Combine input text + pending text
+  let fullMessage = '';
+  if (_chatPendingText && msg) {
+    fullMessage = _chatPendingText + '\n\n' + msg;
+  } else if (_chatPendingText) {
+    fullMessage = _chatPendingText;
+  } else {
+    fullMessage = msg;
+  }
 
   // Show typing indicator
   const typingEl = document.getElementById('chatTyping');
@@ -1789,7 +1803,7 @@ async function sendChatMessage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             from: 'user',
-            message: msg,
+            message: fullMessage,
             type: _chatPendingFile.type === 'image' ? 'image' : 'file',
             fileName: _chatPendingFile.fileName,
             fileUrl: uploadData.url
@@ -1797,14 +1811,16 @@ async function sendChatMessage() {
         });
       }
       _chatPendingFile = null;
-      document.getElementById('chatPreview').style.display = 'none';
-      document.getElementById('chatPreview').innerHTML = '';
+      _chatPendingText = null;
+      updateChatPreview();
     } else {
       await fetch('/api/chat/' + pid, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: 'user', message: msg })
+        body: JSON.stringify({ from: 'user', message: fullMessage })
       });
+      _chatPendingText = null;
+      updateChatPreview();
     }
 
     input.value = '';
@@ -1849,13 +1865,7 @@ function handleChatPaste(event) {
       const reader = new FileReader();
       reader.onload = (e) => {
         _chatPendingFile = { data: e.target.result, fileName: 'screenshot.png', type: 'image' };
-        const preview = document.getElementById('chatPreview');
-        preview.style.display = 'block';
-        preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px">
-          <img src="${e.target.result}" style="max-height:60px;border-radius:4px" />
-          <span style="font-size:11px;color:var(--text-secondary)">screenshot.png</span>
-          <button onclick="_chatPendingFile=null;this.parentElement.parentElement.style.display='none'" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
-        </div>`;
+        updateChatPreview();
       };
       reader.readAsDataURL(file);
       return;
@@ -1866,24 +1876,75 @@ function handleChatPaste(event) {
   const text = event.clipboardData?.getData('text/plain');
   if (text && text.length > 200) {
     event.preventDefault();
-    const input = document.getElementById('chatInput');
-    const lines = text.split('\n').length;
-    const chars = text.length;
-    const preview = document.getElementById('chatPreview');
-    preview.style.display = 'block';
-    preview.innerHTML = `<div style="padding:8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-size:11px;color:var(--accent-blue);font-weight:600">📋 붙여넣기 (${chars.toLocaleString()}자, ${lines}줄)</span>
-        <button onclick="this.parentElement.parentElement.parentElement.style.display='none';document.getElementById('chatInput').value=''" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px">✕</button>
-      </div>
-      <div style="max-height:80px;overflow-y:auto;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;line-height:1.4;background:var(--bg-primary);padding:6px;border-radius:4px">${escapeHtml(text.substring(0, 500))}${text.length > 500 ? '\n...(더보기)' : ''}</div>
-    </div>`;
-    input.value = text;
-    autoResizeChatInput(input);
+    // Store as pending attachment (don't put in input)
+    _chatPendingText = text;
+    updateChatPreview();
   }
 }
 
-// Drag & drop file to chat
+// Pending attachments
+let _chatPendingText = null;
+
+function updateChatPreview() {
+  const preview = document.getElementById('chatPreview');
+  if (!_chatPendingFile && !_chatPendingText) {
+    preview.style.display = 'none';
+    preview.innerHTML = '';
+    return;
+  }
+
+  preview.style.display = 'block';
+  let html = '<div style="display:flex;flex-direction:column;gap:6px">';
+
+  // Text attachment
+  if (_chatPendingText) {
+    const lines = _chatPendingText.split('\n').length;
+    const chars = _chatPendingText.length;
+    html += `<div style="padding:8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:11px;color:var(--accent-blue);font-weight:600">📋 붙여넣기 (${chars.toLocaleString()}자, ${lines}줄)</span>
+        <button onclick="_chatPendingText=null;updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px">✕</button>
+      </div>
+      <div style="max-height:60px;overflow-y:auto;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;line-height:1.4;background:var(--bg-primary);padding:6px;border-radius:4px">${escapeHtml(_chatPendingText.substring(0, 500))}${_chatPendingText.length > 500 ? '\n...' : ''}</div>
+    </div>`;
+  }
+
+  // File/image attachment
+  if (_chatPendingFile) {
+    if (_chatPendingFile.type === 'image') {
+      html += `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
+        <img src="${_chatPendingFile.data}" style="max-height:50px;border-radius:4px" />
+        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(_chatPendingFile.fileName)}</span>
+        <button onclick="_chatPendingFile=null;updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
+      </div>`;
+    } else {
+      html += `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
+        <span>📎</span>
+        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(_chatPendingFile.fileName)}</span>
+        <button onclick="_chatPendingFile=null;updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
+      </div>`;
+    }
+  }
+
+  html += '</div>';
+  preview.innerHTML = html;
+}
+
+// Drag & drop file to chat input area
+function handleChatDrop(event) {
+  const files = event.dataTransfer?.files;
+  if (!files || !files.length) return;
+  const file = files[0];
+  const reader = new FileReader();
+  const isImage = file.type.startsWith('image/');
+  reader.onload = (e) => {
+    _chatPendingFile = { data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' };
+    updateChatPreview();
+  };
+  reader.readAsDataURL(file);
+}
+
+// File input handler
 function handleChatFile(input) {
   const file = input.files[0];
   if (!file) return;
@@ -1891,21 +1952,7 @@ function handleChatFile(input) {
   const isImage = file.type.startsWith('image/');
   reader.onload = (e) => {
     _chatPendingFile = { data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' };
-    const preview = document.getElementById('chatPreview');
-    preview.style.display = 'block';
-    if (isImage) {
-      preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px">
-        <img src="${e.target.result}" style="max-height:60px;border-radius:4px" />
-        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(file.name)}</span>
-        <button onclick="_chatPendingFile=null;this.parentElement.parentElement.style.display='none'" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
-      </div>`;
-    } else {
-      preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px">
-        <span>📎</span>
-        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(file.name)} (${(file.size/1024).toFixed(0)}KB)</span>
-        <button onclick="_chatPendingFile=null;this.parentElement.parentElement.style.display='none'" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
-      </div>`;
-    }
+    updateChatPreview();
   };
   reader.readAsDataURL(file);
   input.value = '';

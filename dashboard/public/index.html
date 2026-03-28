@@ -278,8 +278,11 @@
         <span class="spinner" style="margin-right:4px"></span>...입력 중
       </div>
 
-      <!-- Input area -->
-      <div style="padding:8px 12px;border-top:1px solid var(--border);background:var(--bg-primary)">
+      <!-- Input area (drop zone for files) -->
+      <div style="padding:8px 12px;border-top:1px solid var(--border);background:var(--bg-primary)"
+           ondragover="event.preventDefault();this.style.background='rgba(59,130,246,0.1)'"
+           ondragleave="this.style.background='var(--bg-primary)'"
+           ondrop="event.preventDefault();this.style.background='var(--bg-primary)';handleChatDrop(event)">
         <div id="chatPreview" style="display:none;margin-bottom:8px"></div>
         <div style="display:flex;gap:8px;align-items:center">
           <label style="cursor:pointer;font-size:18px;color:var(--text-muted)" title="파일 첨부">
