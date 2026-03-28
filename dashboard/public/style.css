@@ -680,22 +680,72 @@ body {
 .setup-banner .text { color: var(--accent-green); }
 .setup-banner .dismiss { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; }
 
+/* Phase filter active indicator */
+.phase-block[style*="outline"] {
+  z-index: 1;
+  position: relative;
+}
+
 /* Responsive */
 @media (max-width: 1400px) {
-  .kanban-board { grid-template-columns: repeat(3, 1fr); }
+  .kanban-board { grid-template-columns: repeat(3, minmax(160px, 1fr)); }
 }
 @media (max-width: 768px) {
-  .kanban-board { grid-template-columns: 1fr; }
-  .header { flex-direction: column; gap: 12px; }
-  .filter-bar { flex-direction: column; gap: 8px; }
+  .kanban-board {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 8px 12px;
+    overflow-x: auto;
+  }
+  .header {
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .header-right { flex-wrap: wrap; justify-content: center; }
+  .logo { font-size: 18px; }
+  .stat { font-size: 12px; }
+  .filter-bar {
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .filter-left, .filter-right { flex-wrap: wrap; }
+  .role-tabs { flex-wrap: wrap; }
+  .role-tab { font-size: 11px; padding: 3px 8px; }
+  .phase-bar { padding: 8px 12px; }
+  .phase-block { font-size: 9px; }
+
+  /* Agent row — stack vertically */
   .agent-row {
     grid-template-columns: 1fr;
     gap: 4px;
     padding: 10px 0;
   }
+  .agent-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
   .agent-row .progress-bar { width: 100%; }
+  .agent-task { white-space: normal; word-break: break-word; }
+
+  /* Cards */
+  .kanban-column { min-height: 150px; min-width: unset; }
   .column-body { min-height: 60px; }
+  .column-header { padding: 8px 12px; font-size: 13px; }
   .task-card { padding: 10px; }
-  .card-title { font-size: 14px; word-break: break-word; }
-  .task-modal { min-width: unset; width: 90vw; }
+  .card-title { font-size: 13px; word-break: break-word; }
+  .priority-badge { font-size: 9px; }
+  .role-badge { font-size: 10px; }
+
+  /* Modals */
+  .task-modal { min-width: unset; width: 95vw; max-width: 95vw; }
+  .modal { min-width: unset; width: 90vw; }
+
+  /* Chat widget */
+  #chatPanel { width: calc(100vw - 32px) !important; max-height: 70vh !important; }
+
+  /* Notifications */
+  .notification-container { left: 8px; right: 8px; max-width: none; }
+
+  /* Panels */
+  .agent-panel, .doc-panel { margin: 0 8px 8px; }
+  .panel-body { padding: 8px; }
 }

@@ -324,6 +324,18 @@ app.post('/api/events', (req, res) => {
   const event = req.body;
   event.timestamp = event.timestamp || new Date().toISOString();
   state.processEvent(event);
+
+  // Auto-record notification for key events
+  if (event.type === 'agent_complete') {
+    state.addNotification('success', `${event.agent} 완료`, event.task || '');
+  } else if (event.type === 'agent_start') {
+    state.addNotification('info', `${event.agent} 시작`, event.task || '');
+  } else if (event.type === 'phase_complete') {
+    state.addNotification('success', `Phase ${event.phase} 완료`, '');
+  } else if (event.type === 'document_created') {
+    state.addNotification('info', '산출물 생성', event.file || '');
+  }
+
   broadcast({ type: 'event', data: event });
   broadcast({ type: 'state_update', data: state.getFullState() });
   saveState();
@@ -838,6 +850,22 @@ app.post('/api/upload', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// --- Notifications ---
+app.get('/api/notifications', (req, res) => {
+  const unread = req.query.unread === 'true';
+  res.json(state.getNotifications(unread));
+});
+
+app.post('/api/notifications/read', (req, res) => {
+  if (req.body.id) {
+    state.markNotificationRead(req.body.id);
+  } else {
+    state.markAllNotificationsRead();
+  }
+  saveState();
+  res.json({ ok: true });
 });
 
 // Confirm response (from dashboard UI)

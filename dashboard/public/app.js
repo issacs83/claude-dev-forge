@@ -3,6 +3,7 @@ let ws = null;
 let state = { tasks: [], agents: {}, phases: [], documents: [], stats: {}, phaseProgress: 0 };
 let activeRoleFilter = 'all';
 let activeProjectFilter = localStorage.getItem('jun_active_project') || 'all';
+let activePhaseFilter = localStorage.getItem('jun_active_phase') || 'all';
 
 // --- WebSocket ---
 function connect() {
@@ -135,12 +136,31 @@ function renderPhases() {
     'P8:Impl', 'P9:Test', 'P10:Verify', 'P11:Eval'
   ];
   const phases = state.phases || [];
-  track.innerHTML = phases.map((p, i) =>
-    `<div class="phase-block ${p.status}" data-name="${phaseNames[i] || p.name}" style="cursor:pointer" onclick="openPhaseDetail(${i})">
+  track.innerHTML = phases.map((p, i) => {
+    const isSelected = String(activePhaseFilter) === String(i);
+    const selectedStyle = isSelected ? 'outline:2px solid white;outline-offset:1px;' : '';
+    return `<div class="phase-block ${p.status}" data-name="${phaseNames[i] || p.name}" style="cursor:pointer;${selectedStyle}" onclick="togglePhaseFilter(${i})" oncontextmenu="event.preventDefault();openPhaseDetail(${i})">
       ${i}
-    </div>`
-  ).join('');
-  document.getElementById('phasePercent').textContent = (state.phaseProgress || 0) + '%';
+    </div>`;
+  }).join('');
+
+  // Show active filter label
+  let label = (state.phaseProgress || 0) + '%';
+  if (activePhaseFilter !== 'all') {
+    label = `P${activePhaseFilter} 필터 | ` + label;
+  }
+  document.getElementById('phasePercent').textContent = label;
+}
+
+function togglePhaseFilter(phaseId) {
+  if (String(activePhaseFilter) === String(phaseId)) {
+    activePhaseFilter = 'all'; // toggle off
+  } else {
+    activePhaseFilter = String(phaseId);
+  }
+  localStorage.setItem('jun_active_phase', activePhaseFilter);
+  renderPhases();
+  renderKanban();
 }
 
 function renderKanban() {
@@ -151,6 +171,7 @@ function renderKanban() {
   const tasks = (state.tasks || []).filter(t => {
     if (activeRoleFilter !== 'all' && t.role !== activeRoleFilter) return false;
     if (activeProjectFilter !== 'all' && t.project !== activeProjectFilter) return false;
+    if (activePhaseFilter !== 'all' && String(t.phase) !== String(activePhaseFilter)) return false;
     return true;
   });
 

@@ -15,6 +15,7 @@ class StateManager {
     this.commentIdCounter = 0;
     this.comments = {}; // taskId → [comments]
     this.taskHistory = {}; // taskId → [history entries]
+    this.notifications = []; // [{id, type, title, message, timestamp, read}]
   }
 
   _initPhases() {
@@ -181,6 +182,8 @@ class StateManager {
       title: data.title || '',
       description: data.description || '',
       objective: data.objective || '',
+      dependencies: data.dependencies || [], // [taskId] — must complete before this
+      blockedBy: [],  // auto-computed
       status: data.status || 'todo',
       priority: data.priority || 'medium',
       role: data.role || 'general',
@@ -203,7 +206,20 @@ class StateManager {
     const oldAgent = task.agent;
     Object.assign(task, updates, { updatedAt: new Date().toISOString() });
     // Track status change
+    if (updates.dependencies) {
+      task.dependencies = updates.dependencies;
+    }
     if (updates.status && updates.status !== oldStatus) {
+      // Check dependencies before allowing in_progress
+      if (updates.status === 'in_progress' && task.dependencies && task.dependencies.length > 0) {
+        const unfinished = task.dependencies.filter(depId => {
+          const dep = this.tasks.find(t => t.id === depId);
+          return dep && dep.status !== 'done';
+        });
+        if (unfinished.length > 0) {
+          task._blockedBy = unfinished;
+        }
+      }
       this._addHistory(id, 'status_change', `${oldStatus} → ${updates.status}`);
     }
     // Track agent change
@@ -324,6 +340,28 @@ class StateManager {
     };
   }
 
+  // --- Notifications ---
+  addNotification(type, title, message) {
+    const notif = { id: String(Date.now()), type, title, message, timestamp: new Date().toISOString(), read: false };
+    this.notifications.push(notif);
+    if (this.notifications.length > 200) this.notifications = this.notifications.slice(-200);
+    return notif;
+  }
+
+  getNotifications(unreadOnly) {
+    if (unreadOnly) return this.notifications.filter(n => !n.read);
+    return this.notifications;
+  }
+
+  markNotificationRead(id) {
+    const n = this.notifications.find(n => n.id === id);
+    if (n) n.read = true;
+  }
+
+  markAllNotificationsRead() {
+    this.notifications.forEach(n => n.read = true);
+  }
+
   getAgents() { return this.agents; }
   getTimeline() { return this.timeline; }
   getDocuments() { return this.documents.filter(d => d.file); }
@@ -397,6 +435,7 @@ class StateManager {
       comments: this.comments,
       taskHistory: this.taskHistory,
       commentIdCounter: this.commentIdCounter,
+      notifications: this.notifications.slice(-200),
       savedAt: new Date().toISOString()
     };
 
@@ -424,6 +463,7 @@ class StateManager {
       this.comments = data.comments || {};
       this.taskHistory = data.taskHistory || {};
       this.commentIdCounter = data.commentIdCounter || 0;
+      this.notifications = data.notifications || [];
       console.log(`  ✓ Loaded: ${this.projects.length} projects, ${this.tasks.length} tasks`);
       return true;
     } catch (e) {
