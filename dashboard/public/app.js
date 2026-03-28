@@ -106,7 +106,7 @@ function renderKanban() {
     if (!container) return;
     container.innerHTML = cols[status].length
       ? cols[status].map(renderCard).join('')
-      : '';
+      : '<div style="color:var(--text-muted);text-align:center;padding:20px;font-size:13px">No tasks</div>';
 
     // Update counts
     const countId = 'count' + capitalize(status);
@@ -124,6 +124,30 @@ function renderCard(task) {
   const priorityClass = 'priority-' + (task.priority || 'medium');
   const roleClass = 'role-' + (task.role || 'dev');
   const timeAgo = getTimeAgo(task.updatedAt);
+  const assignee = task.assignee || task.agent || '';
+  const progress = task.progress || 0;
+  const isWorking = task.status === 'in_progress';
+
+  // Calculate elapsed and estimated remaining time
+  let timeInfo = '';
+  if (isWorking && task.createdAt) {
+    const elapsed = Math.floor((Date.now() - new Date(task.createdAt).getTime()) / 60000);
+    const estTotal = task.estimatedMinutes || 60;
+    const remaining = Math.max(0, estTotal - elapsed);
+    const pct = progress > 0 ? progress : Math.min(95, Math.floor((elapsed / estTotal) * 100));
+    timeInfo = `
+      <div class="progress-section">
+        <div class="progress-header">
+          <span class="spinner"></span>
+          <span class="progress-pct">${pct}%</span>
+          <span class="progress-time">${elapsed}m elapsed / ~${remaining}m left</span>
+        </div>
+        <div class="progress-bar-card">
+          <div class="progress-fill-card" style="width:${pct}%"></div>
+        </div>
+      </div>
+    `;
+  }
 
   // Find agent working on this task
   const agents = state.agents || {};
@@ -167,24 +191,127 @@ function renderCard(task) {
   }
 
   return `
-    <div class="task-card" data-id="${task.id}" draggable="true"
-         ondragstart="onDragStart(event, '${task.id}')"
-         ondragend="onDragEnd(event)">
+    <div class="task-card ${isWorking ? 'working' : ''}" data-id="${task.id}" draggable="true"
+         ondragstart="onDragStart(event)" onclick="onCardClick('${task.id}')">
       <div class="card-top">
         <span class="card-title">${escapeHtml(task.title)}</span>
         <span class="priority-badge ${priorityClass}">${capitalize(task.priority || 'medium')}</span>
       </div>
-      <span class="role-badge ${roleClass}">${task.role || 'dev'}</span>
-      ${agentStatusHTML}
-      <div class="card-meta" style="margin-top:6px">
+      <span class="role-badge ${roleClass}">${assignee || task.role || 'unassigned'}</span>
+      ${timeInfo}
+      <div class="card-meta">
         <span>
-          ${task.comments ? `💬 ${task.comments}` : ''}
-          ${!task.agent && task.status === 'done' ? 'Status changed to DONE' : ''}
+          ${task.status === 'done' ? '✅ Done' : isWorking ? '' : ''}
         </span>
+      </div>
+      <div class="card-meta" style="margin-top:4px">
+        <span class="card-agent">${assignee}</span>
         <span>${timeAgo}</span>
       </div>
     </div>
   `;
+}
+
+// --- Drag & Drop ---
+function onDragStart(event) {
+  event.dataTransfer.setData('text/plain', event.target.dataset.id);
+  event.target.classList.add('dragging');
+}
+
+function allowDrop(event) {
+  event.preventDefault();
+  event.currentTarget.classList.add('drop-target');
+}
+
+function onDragLeave(event) {
+  event.currentTarget.classList.remove('drop-target');
+}
+
+function onDrop(event, newStatus) {
+  event.preventDefault();
+  event.currentTarget.classList.remove('drop-target');
+  const taskId = event.dataTransfer.getData('text/plain');
+  if (!taskId) return;
+  moveTask(taskId, newStatus);
+}
+
+function moveTask(taskId, newStatus) {
+  fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus })
+  })
+  .then(r => r.json())
+  .then(task => {
+    if (newStatus === 'in_progress' && task.assignee) {
+      showAgentDispatch(task);
+    }
+    fetchAndRender();
+  });
+}
+
+// --- Card Click (status change modal) ---
+function onCardClick(taskId) {
+  const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
+  if (!task) return;
+
+  const modal = document.createElement('div');
+  modal.className = 'task-modal-overlay';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  const statuses = ['todo', 'in_progress', 'done'];
+  const agents = ['web-developer', 'ai-trainer', 'algorithm-researcher', 'e2e-tester',
+                  'ux-designer', 'cuda-engineer', 'security-reviewer', 'tdd-guide',
+                  'doc-manager', 'inference-optimizer'];
+
+  modal.innerHTML = `
+    <div class="task-modal">
+      <h3>${escapeHtml(task.title)}</h3>
+      <div style="margin:12px 0">
+        <label>Status:</label>
+        <div class="status-buttons">
+          ${statuses.map(s => `
+            <button class="status-btn ${s === task.status ? 'active' : ''}"
+                    onclick="updateTaskStatus('${taskId}', '${s}', this)">${s === 'todo' ? '📋 Todo' : s === 'in_progress' ? '🔄 In Progress' : '✅ Done'}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div style="margin:12px 0">
+        <label>Assign Agent:</label>
+        <select id="agentSelect" onchange="assignAgent('${taskId}', this.value)">
+          <option value="">-- select --</option>
+          ${agents.map(a => `<option value="${a}" ${a === (task.assignee || task.agent) ? 'selected' : ''}>${a}</option>`).join('')}
+        </select>
+      </div>
+      <button class="close-btn" onclick="this.closest('.task-modal-overlay').remove()">Close</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function updateTaskStatus(taskId, newStatus, btn) {
+  fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus })
+  }).then(() => {
+    document.querySelector('.task-modal-overlay')?.remove();
+    fetchAndRender();
+  });
+}
+
+function assignAgent(taskId, agent) {
+  fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignee: agent, agent: agent })
+  }).then(() => fetchAndRender());
+}
+
+function showAgentDispatch(task) {
+  const msg = `🤖 Agent "${task.assignee}" dispatched for: ${task.title}`;
+  console.log(msg);
+  // Could show a toast notification here
 }
 
 function renderAgents() {
@@ -593,7 +720,14 @@ function dismissNotification(id) {
 connect();
 
 // Fetch initial state via REST as fallback
-fetch('/api/status')
-  .then(r => r.json())
-  .then(data => { state = data; render(); })
-  .catch(() => {});
+function fetchAndRender() {
+  fetch('/api/status')
+    .then(r => r.json())
+    .then(data => { state = data; render(); })
+    .catch(() => {});
+}
+
+fetchAndRender();
+
+// Auto-refresh every 5 seconds
+setInterval(fetchAndRender, 5000);

@@ -454,99 +454,101 @@ body {
 .modal-actions button:first-child { background: var(--accent-blue); color: white; }
 .modal-actions button:last-child { background: var(--bg-hover); color: var(--text-secondary); }
 
-/* Notification Toast */
-.notification-container {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 200;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 420px;
+/* Working card animation */
+.task-card.working {
+  border-left: 3px solid var(--accent-orange);
+  animation: pulse-glow 2s ease-in-out infinite;
 }
-.notification {
-  background: var(--bg-secondary);
-  border: 1px solid var(--accent-blue);
-  border-left: 4px solid var(--accent-blue);
-  border-radius: var(--radius);
-  padding: 16px;
-  animation: slideIn 0.3s ease-out;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+  50% { box-shadow: 0 0 8px 2px rgba(245,158,11,0.2); }
 }
-.notification.success { border-color: var(--accent-green); border-left-color: var(--accent-green); }
-.notification.warning { border-color: var(--accent-orange); border-left-color: var(--accent-orange); }
-.notification-title {
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.notification-body {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
-  line-height: 1.5;
-}
-.notification-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-.notification-actions button {
-  padding: 6px 16px;
-  border: none;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-}
-.btn-yes { background: var(--accent-blue); color: white; }
-.btn-yes:hover { background: #2563eb; }
-.btn-no { background: var(--bg-hover); color: var(--text-secondary); }
-.btn-no:hover { background: var(--border); }
-.btn-dismiss { background: transparent; color: var(--text-muted); font-size: 12px; }
 
-/* Agent Assign Modal */
-.assign-agent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-.assign-agent-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: var(--bg-primary);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.assign-agent-item:hover { background: var(--bg-hover); }
-.assign-agent-item .name { font-weight: 500; font-size: 13px; }
-.assign-agent-item .status-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
+/* Spinner */
+.spinner {
   display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid rgba(245,158,11,0.3);
+  border-top-color: var(--accent-orange);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
   margin-right: 6px;
+  vertical-align: middle;
 }
-.status-dot.available { background: var(--accent-green); }
-.status-dot.busy { background: var(--accent-orange); }
-.assign-info { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
-@keyframes slideIn {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+/* Progress section in card */
+.progress-section {
+  margin: 8px 0;
 }
-@keyframes fadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; transform: translateX(50px); }
+.progress-header {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 4px;
 }
+.progress-pct {
+  font-weight: 700;
+  color: var(--accent-orange);
+  margin-right: 8px;
+  font-size: 14px;
+}
+.progress-time {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.progress-bar-card {
+  width: 100%;
+  height: 4px;
+  background: rgba(100,116,139,0.3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-fill-card {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-orange), var(--accent-green));
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* Drag & Drop */
+.task-card { cursor: grab; transition: transform 0.15s, box-shadow 0.15s; }
+.task-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.task-card.dragging { opacity: 0.5; transform: rotate(2deg); }
+.kanban-column.drop-target { background: rgba(99, 102, 241, 0.1); border: 2px dashed var(--accent); }
+
+/* Task Modal */
+.task-modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.task-modal {
+  background: var(--bg-card); border-radius: 12px; padding: 24px;
+  min-width: 360px; max-width: 480px; color: var(--text-primary);
+}
+.task-modal h3 { margin: 0 0 16px 0; font-size: 18px; }
+.task-modal label { display: block; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+.status-buttons { display: flex; gap: 8px; }
+.status-btn {
+  flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;
+  font-size: 13px; transition: all 0.2s;
+}
+.status-btn:hover { border-color: var(--accent); }
+.status-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+.task-modal select {
+  width: 100%; padding: 8px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-secondary); color: var(--text-primary); font-size: 14px;
+}
+.close-btn {
+  margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 8px;
+  background: var(--bg-secondary); color: var(--text-primary); cursor: pointer;
+  font-size: 14px;
+}
+.close-btn:hover { background: var(--border); }
 
 /* Responsive */
 @media (max-width: 1400px) {
@@ -556,5 +558,14 @@ body {
   .kanban-board { grid-template-columns: 1fr; }
   .header { flex-direction: column; gap: 12px; }
   .filter-bar { flex-direction: column; gap: 8px; }
-  .notification-container { left: 16px; right: 16px; max-width: none; }
+  .agent-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 10px 0;
+  }
+  .agent-row .progress-bar { width: 100%; }
+  .column-body { min-height: 60px; }
+  .task-card { padding: 10px; }
+  .card-title { font-size: 14px; word-break: break-word; }
+  .task-modal { min-width: unset; width: 90vw; }
 }

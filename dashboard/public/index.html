@@ -54,44 +54,42 @@
 
   <!-- Kanban Board (6 columns — HOLD 추가) -->
   <div class="kanban-board" id="kanbanBoard">
-    <div class="kanban-column" data-status="todo">
+    <div class="kanban-column" data-status="todo"
+         ondragover="allowDrop(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'todo')">
       <div class="column-header todo">
-        <span>To Do</span>
+        <span>📋 To Do</span>
         <span class="column-count" id="countTodo">0</span>
       </div>
       <div class="column-body" id="colTodo"></div>
     </div>
-    <div class="kanban-column" data-status="hold">
-      <div class="column-header hold">
-        <span>Hold</span>
-        <span class="column-count" id="countHold">0</span>
-      </div>
-      <div class="column-body" id="colHold"></div>
-    </div>
-    <div class="kanban-column" data-status="claimed">
+    <div class="kanban-column" data-status="claimed"
+         ondragover="allowDrop(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'claimed')">
       <div class="column-header claimed">
-        <span>Claimed</span>
+        <span>👋 Claimed</span>
         <span class="column-count" id="countClaimed">0</span>
       </div>
       <div class="column-body" id="colClaimed"></div>
     </div>
-    <div class="kanban-column" data-status="in_progress">
+    <div class="kanban-column" data-status="in_progress"
+         ondragover="allowDrop(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'in_progress')">
       <div class="column-header in_progress">
-        <span>In Progress</span>
+        <span>🔄 In Progress</span>
         <span class="column-count" id="countInProgress">0</span>
       </div>
       <div class="column-body" id="colInProgress"></div>
     </div>
-    <div class="kanban-column" data-status="review">
+    <div class="kanban-column" data-status="review"
+         ondragover="allowDrop(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'review')">
       <div class="column-header review">
-        <span>Review</span>
+        <span>🔍 Review</span>
         <span class="column-count" id="countReview">0</span>
       </div>
       <div class="column-body" id="colReview"></div>
     </div>
-    <div class="kanban-column" data-status="done">
+    <div class="kanban-column" data-status="done"
+         ondragover="allowDrop(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'done')">
       <div class="column-header done">
-        <span>Done</span>
+        <span>✅ Done</span>
         <span class="column-count" id="countDone">0</span>
       </div>
       <div class="column-body" id="colDone"></div>
