@@ -36,12 +36,26 @@ When Phase 11 (Evaluation) determines quality is insufficient:
 - Grade C → Loop to Phase 9 (re-test)
 - Grade D/F → Loop to Phase 8 (re-implement)
 
-## Dashboard
-All agent activities are reported to the PDLC Dashboard (localhost:7700)
-for real-time visual monitoring.
+## Dashboard (Jun.AI)
+- **URL**: `http://58.29.21.11:7700`
+- **API Docs**: `http://58.29.21.11:7701`
+- All agent activities are reported to the dashboard for real-time monitoring
+
+### Project + Session Setup
+When starting any new project, ALWAYS:
+1. Register project: `POST http://58.29.21.11:7700/api/projects/setup`
+2. Create Claude session: `POST http://58.29.21.11:7700/api/sessions/start`
+3. Report progress during work: `POST http://58.29.21.11:7700/api/events`
+
+### Task → Session Dispatch
+When a task is moved to In Progress on the dashboard:
+- Task is automatically sent to the matching Claude tmux session
+- If no session exists, one is auto-created
+- Agent starts working immediately upon receiving the task
 
 ## Autonomous Operation
 - project-director interprets natural language requirements
 - env-provisioner ensures dependencies before agent dispatch
 - Agents chain automatically based on auto-chaining rules
 - User intervention only at phase gates and decision points
+- All progress reported to Jun.AI Dashboard in real-time

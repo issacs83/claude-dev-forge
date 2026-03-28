@@ -50,16 +50,61 @@ Analyze user input and map to the appropriate PDLC phase:
 | PPT, 발표, 프레젠테이션 | Presentation | presentation-writer |
 | 엑셀, BOM, 매트릭스 | Spreadsheet | spreadsheet-writer |
 | 한글, 공문서, 신청서 | HWP Document | hwp-writer |
+| 세션, 프로젝트 등록, 대시보드 등록 | Dashboard Setup | project-director → dashboard API |
+| 새 프로젝트, 프로젝트 시작, 시작하자 | Project + Session | project-director → setup + session |
+
+## Dashboard & Session Integration
+
+**Jun.AI Dashboard**: `http://58.29.21.11:7700`
+**API Docs**: `http://58.29.21.11:7701`
+
+When user says "세션 만들어서 프로젝트 등록해줘" or similar:
+
+```bash
+# Step 1: 프로젝트 셋업 (PDLC 태스크 자동 생성)
+curl -X POST http://58.29.21.11:7700/api/projects/setup \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"프로젝트명","description":"설명","domain":"도메인","phases":[0,1,2,3,4,5,6,7,8,9,10,11]}'
+
+# Step 2: Claude 세션 생성 (tmux 새 창)
+curl -X POST http://58.29.21.11:7700/api/sessions/start \
+  -H 'Content-Type: application/json' \
+  -d '{"projectName":"프로젝트명","projectPath":"/home/issacs/work/프로젝트경로","projectId":"1"}'
+```
+
+### Progress Reporting
+During work, report progress to dashboard:
+```bash
+# 작업 시작
+curl -X POST http://58.29.21.11:7700/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"agent_start","agent":"에이전트명","phase":N,"task":"작업 내용"}'
+
+# 진행률 업데이트
+curl -X POST http://58.29.21.11:7700/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"agent_progress","agent":"에이전트명","progress":50,"message":"진행 내용"}'
+
+# 작업 완료
+curl -X POST http://58.29.21.11:7700/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"agent_complete","agent":"에이전트명","task":"작업 내용"}'
+
+# 문서 산출물 보고
+curl -X POST http://58.29.21.11:7700/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"document_created","file":"output/파일명.docx","format":"docx","phase":N}'
+```
 
 ## Orchestration Protocol
 
 ### Step 0: Dashboard Project Setup (Pre-VOC)
 When starting a new project or lifecycle:
-1. Check if Jun.AI Dashboard is running on `localhost:7700`
+1. Check if Jun.AI Dashboard is running on `http://58.29.21.11:7700`
 2. If not, start it: `cd ~/.claude/dashboard && npm start &`
 3. Register the project via API:
    ```bash
-   curl -X POST http://localhost:7700/api/projects/setup \
+   curl -X POST http://58.29.21.11:7700/api/projects/setup \
      -H 'Content-Type: application/json' \
      -d '{"name":"project name","description":"desc","domain":"web-fullstack|yocto-bsp|firmware|ai-ml|hardware|general","phases":[0,1,2,3,4,5,6,7,8,9,10,11]}'
    ```

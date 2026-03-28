@@ -211,6 +211,46 @@ curl -X POST http://58.29.21.11:7700/api/notify \\
       ]
     },
     {
+      group: 'Sessions',
+      routes: [
+        {
+          method: 'GET', path: '/api/sessions',
+          desc: '활성 tmux 창(Claude 세션) 목록 조회',
+          response: '[{ index, name, command, cwd, isClaudeSession }]'
+        },
+        {
+          method: 'POST', path: '/api/sessions/start',
+          desc: '새 Claude Code 세션을 tmux 창으로 생성 — 프로젝트 디렉토리로 이동 후 claude 실행',
+          body: `{
+  projectName: string,       // 프로젝트 이름 (tmux 창 이름: jun-{name})
+  projectPath?: string,      // 프로젝트 디렉토리 (기본: /home/issacs/work)
+  projectId?: string         // 대시보드 프로젝트 ID (초기 컨텍스트 전달용)
+}`,
+          response: '{ ok: true, action: "created"|"focused", window: string, message: string }',
+          example: `# 프로젝트 세션 생성
+curl -X POST http://58.29.21.11:7700/api/sessions/start \\
+  -H 'Content-Type: application/json' \\
+  -d '{"projectName":"스마트카메라","projectPath":"/home/issacs/work/smart-camera","projectId":"1"}'`
+        },
+        {
+          method: 'POST', path: '/api/sessions/stop',
+          desc: 'tmux 창(Claude 세션) 종료',
+          body: '{ windowName: string }',
+          response: '{ ok: true, message: string }'
+        },
+        {
+          method: 'POST', path: '/api/sessions/send',
+          desc: '실행 중인 Claude 세션에 메시지 전송 (tmux send-keys)',
+          body: '{ windowName: string, message: string }',
+          response: '{ ok: true }',
+          example: `# Claude 세션에 태스크 전달
+curl -X POST http://58.29.21.11:7700/api/sessions/send \\
+  -H 'Content-Type: application/json' \\
+  -d '{"windowName":"jun-스마트카메라","message":"Phase 0 선행연구를 시작해주세요. paper-patent-researcher 에이전트를 사용하세요."}'`
+        }
+      ]
+    },
+    {
       group: 'Timeline',
       routes: [
         {
@@ -266,6 +306,41 @@ curl -X POST http://58.29.21.11:7700/api/notify \\
         code: `curl -X POST http://58.29.21.11:7700/api/tasks \\
   -H 'Content-Type: application/json' \\
   -d '{"title":"E2E 테스트 작성","project":"1","role":"test","priority":"high","status":"todo"}'`
+      },
+      {
+        title: '6. 프로젝트 셋업 + 세션 생성 (한번에)',
+        code: `# Step 1: 프로젝트 셋업 (PDLC 12단계 태스크 자동 생성)
+curl -X POST http://58.29.21.11:7700/api/projects/setup \\
+  -H 'Content-Type: application/json' \\
+  -d '{"name":"스마트카메라 v2","description":"AI 카메라 개발","domain":"ai-ml"}'
+
+# Step 2: Claude 세션 생성 (tmux 새 창에서 claude 실행)
+curl -X POST http://58.29.21.11:7700/api/sessions/start \\
+  -H 'Content-Type: application/json' \\
+  -d '{"projectName":"스마트카메라v2","projectPath":"/home/issacs/work/smart-camera","projectId":"1"}'
+
+# Step 3: 세션에 태스크 전달
+curl -X POST http://58.29.21.11:7700/api/sessions/send \\
+  -H 'Content-Type: application/json' \\
+  -d '{"windowName":"jun-스마트카메라v2","message":"Phase 0 선행연구를 시작해주세요."}'`
+      },
+      {
+        title: '7. 태스크 이동 시 Claude 세션에 자동 전달 (대시보드 UI)',
+        code: `# 대시보드에서 카드를 In Progress로 드래그하면:
+# 1. 태스크 상태 변경
+curl -X PATCH http://58.29.21.11:7700/api/tasks/1 \\
+  -H 'Content-Type: application/json' \\
+  -d '{"status":"in_progress"}'
+
+# 2. 에이전트 시작 이벤트 발행
+curl -X POST http://58.29.21.11:7700/api/events \\
+  -H 'Content-Type: application/json' \\
+  -d '{"type":"agent_start","agent":"paper-patent-researcher","phase":0,"task":"Phase 0: 선행연구"}'
+
+# 3. Claude 세션에 자동 전달 (대시보드 UI가 자동 수행)
+curl -X POST http://58.29.21.11:7700/api/sessions/send \\
+  -H 'Content-Type: application/json' \\
+  -d '{"windowName":"jun-프로젝트명","message":"[Jun.AI] Phase 0: 선행연구 — paper-patent-researcher 에이전트로 실행해주세요."}'`
       }
     ]
   }
