@@ -448,7 +448,24 @@ app.post('/api/projects/setup', (req, res) => {
     timestamp: new Date().toISOString()
   });
 
-  // 6. Save + Broadcast
+  // 6. Create .claude/CLAUDE.md in project directory (if projectDir exists or can be created)
+  const setupProjectDir = project.projectDir || (domain !== 'general' ? path.join('/home/issacs/sessions', 'jun-' + name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30)) : null);
+  if (setupProjectDir) {
+    try {
+      const claudeDir = path.join(setupProjectDir, '.claude');
+      if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
+
+      const claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
+      if (!fs.existsSync(claudeMdPath)) {
+        const claudeMdContent = `# ${name}\n\n## HARD GATE: Dashboard-First Rule\n**모든 작업은 Jun.AI Dashboard(http://58.29.21.11:7700)에 먼저 보고한 후 실행한다.**\nProject ID: ${project.id}\nAPI Docs: http://58.29.21.11:7701\n\n### 작업 순서\n1. agent_start 보고 → 2. 작업 수행 → 3. progress 보고 → 4. agent_complete 보고 → 5. document_created 보고\n\n### API\n\`\`\`bash\ncurl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{\"type\":\"agent_start\",\"agent\":\"에이전트명\",\"task\":\"작업내용\"}'\ncurl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{\"type\":\"agent_progress\",\"agent\":\"에이전트명\",\"progress\":50,\"message\":\"진행내용\"}'\ncurl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{\"type\":\"agent_complete\",\"agent\":\"에이전트명\",\"task\":\"작업내용\"}'\ncurl -s -X POST http://58.29.21.11:7700/api/chat/${project.id} -H 'Content-Type: application/json' -d '{\"from\":\"에이전트명\",\"message\":\"응답\"}'\n\`\`\`\n`;
+        fs.writeFileSync(claudeMdPath, claudeMdContent, 'utf-8');
+      }
+      project.projectDir = setupProjectDir;
+      state.updateProject(project.id, { projectDir: setupProjectDir });
+    } catch (e) { /* ignore dir creation errors */ }
+  }
+
+  // 7. Save + Broadcast
   saveState();
   broadcast({ type: 'state_update', data: state.getFullState() });
 
