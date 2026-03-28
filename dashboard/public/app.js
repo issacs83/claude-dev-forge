@@ -2689,10 +2689,11 @@ function initTerminal() {
       }).catch(() => {});
       return false;
     }
-    // Shift+Enter: send backslash + Enter (multiline in Claude CLI)
+    // Shift+Enter: newline without submit (sends Ctrl+J which is literal newline)
     if (ev.shiftKey && ev.key === 'Enter' && ev.type === 'keydown') {
+      // In Claude CLI, use Ctrl+J for literal newline in input
       if (termWs && termWs.readyState === WebSocket.OPEN) {
-        termWs.send('\\\n');
+        termWs.send('\x0a'); // Ctrl+J = literal line feed
       }
       return false;
     }
@@ -2703,32 +2704,43 @@ function initTerminal() {
       }).catch(() => {});
       return false;
     }
-    // Shift+Up/Down: scroll terminal history
-    if (ev.shiftKey && ev.key === 'ArrowUp' && ev.type === 'keydown') {
-      term.scrollLines(-3);
-      return false;
-    }
-    if (ev.shiftKey && ev.key === 'ArrowDown' && ev.type === 'keydown') {
-      term.scrollLines(3);
-      return false;
-    }
-    // Shift+PageUp/PageDown: scroll full page
+    // Shift+PageUp: enter tmux copy-mode and scroll up
     if (ev.shiftKey && ev.key === 'PageUp' && ev.type === 'keydown') {
-      term.scrollPages(-1);
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        // tmux: Ctrl+B then [ enters copy-mode, then PageUp scrolls
+        termWs.send('\x02['); // Ctrl+B [
+        setTimeout(() => termWs.send('\x1b[5~'), 100); // PageUp
+      }
       return false;
     }
     if (ev.shiftKey && ev.key === 'PageDown' && ev.type === 'keydown') {
-      term.scrollPages(1);
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        termWs.send('\x1b[6~'); // PageDown in copy-mode
+      }
       return false;
     }
     return true;
   });
 
-  // Mouse wheel scroll support (ensure it works even when tmux captures mouse)
+  // Mouse wheel scroll: use tmux copy-mode for real history scrollback
+  let _tmuxCopyMode = false;
   container.addEventListener('wheel', (e) => {
-    if (e.deltaY < 0) { term.scrollLines(-3); }
-    else { term.scrollLines(3); }
+    if (!termWs || termWs.readyState !== WebSocket.OPEN) return;
+    if (e.deltaY < 0) {
+      // Scroll up — enter tmux copy-mode if not already
+      if (!_tmuxCopyMode) {
+        termWs.send('\x02['); // Ctrl+B [ = enter copy-mode
+        _tmuxCopyMode = true;
+      }
+      termWs.send('\x1b[A\x1b[A\x1b[A'); // Up x3
+    } else {
+      if (_tmuxCopyMode) {
+        termWs.send('\x1b[B\x1b[B\x1b[B'); // Down x3
+      }
+    }
   }, { passive: true });
+  // Exit copy-mode when user types
+  term.onData(() => { _tmuxCopyMode = false; });
 
   // Auto-fit on resize
   window.addEventListener('resize', () => { if (fitAddon) fitAddon.fit(); });
