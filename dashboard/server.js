@@ -24,6 +24,89 @@ setInterval(() => {
   state.save(DATA_FILE);
 }, 30000);
 
+// --- Task Health Monitor (timeout + stale detection) ---
+const TASK_TIMEOUT_MS = 5 * 60 * 1000; // 5분 무응답 시 타임아웃
+const AGENT_STALE_MS = 3 * 60 * 1000;  // 3분 진행률 변화 없으면 stale
+
+setInterval(() => {
+  const now = Date.now();
+  const tasks = state.tasks || [];
+  const agents = state.agents || {};
+
+  tasks.forEach(task => {
+    if (task.status !== 'in_progress') return;
+    if (!task.agent) return;
+
+    const agent = agents[task.agent];
+    if (!agent) {
+      // Agent doesn't exist — mark as stale
+      task._healthStatus = 'no_agent';
+      task._healthMessage = `에이전트 "${task.agent}" 응답 없음 — 세션 미연결`;
+      return;
+    }
+
+    if (agent.status === 'running') {
+      const startedAt = new Date(agent.startedAt || task.updatedAt).getTime();
+      const elapsed = now - startedAt;
+      const progress = agent.progress || 0;
+
+      if (progress === 0 && elapsed > TASK_TIMEOUT_MS) {
+        // No progress at all for 5 min → timeout
+        task._healthStatus = 'timeout';
+        task._healthMessage = `${Math.floor(elapsed/60000)}분 경과, 진행률 0% — 세션 미응답`;
+
+        // Auto-revert to todo
+        const oldStatus = task.status;
+        task.status = 'todo';
+        task.updatedAt = new Date().toISOString();
+        state._addHistory(task.id, 'timeout_revert', `타임아웃: ${Math.floor(elapsed/60000)}분 무응답 → todo 복귀`);
+
+        // Notification
+        broadcast({ type: 'agent_confirm', data: {
+          title: '⏱ 타임아웃',
+          message: `"${task.title}" — ${task.agent} 에이전트가 ${Math.floor(elapsed/60000)}분간 응답 없어 To Do로 복귀했습니다. 재시도하시겠습니까?`,
+          agent: task.agent,
+          task: task.title,
+          next_agent: task.agent,
+          next_task: task.title
+        }});
+        broadcast({ type: 'state_update', data: state.getFullState() });
+        saveState();
+
+      } else if (progress > 0 && progress < 100) {
+        // Check if progress is stale (no change for 3 min)
+        const lastProgress = agent._lastProgressTime || startedAt;
+        if (now - lastProgress > AGENT_STALE_MS && agent._lastProgress === progress) {
+          task._healthStatus = 'stale';
+          task._healthMessage = `진행률 ${progress}%에서 ${Math.floor((now-lastProgress)/60000)}분째 멈춤`;
+        } else {
+          task._healthStatus = 'running';
+          task._healthMessage = `정상 진행 중 (${progress}%)`;
+        }
+      } else {
+        task._healthStatus = 'running';
+        task._healthMessage = `정상 진행 중 (${progress}%)`;
+      }
+    } else if (agent.status === 'waiting') {
+      task._healthStatus = 'waiting';
+      task._healthMessage = `대기 중: ${agent.waitingFor || '선행 작업 완료 대기'}`;
+    } else if (agent.status === 'completed') {
+      task._healthStatus = 'agent_done';
+      task._healthMessage = `에이전트 완료 — 태스크 상태 변경 필요`;
+    }
+  });
+
+  // Track progress changes for stale detection
+  Object.values(agents).forEach(a => {
+    if (a.status === 'running') {
+      if (a._lastProgress !== a.progress) {
+        a._lastProgress = a.progress;
+        a._lastProgressTime = now;
+      }
+    }
+  });
+}, 30000); // Check every 30 seconds
+
 // Save on process exit
 process.on('SIGINT', () => { state.save(DATA_FILE); process.exit(0); });
 process.on('SIGTERM', () => { state.save(DATA_FILE); process.exit(0); });

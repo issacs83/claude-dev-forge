@@ -190,7 +190,24 @@ function renderCard(task) {
         </div>
       </div>
     `;
-  } else if (task.status === 'done' && task.agent) {
+  }
+
+  // Health status indicator
+  let healthHTML = '';
+  const hs = task._healthStatus;
+  if (hs === 'timeout') {
+    healthHTML = `<div class="health-badge health-timeout">⏱ 타임아웃 — 무응답으로 복귀됨</div>`;
+  } else if (hs === 'stale') {
+    healthHTML = `<div class="health-badge health-stale">⚠ 정체 — ${escapeHtml(task._healthMessage || '')}</div>`;
+  } else if (hs === 'no_agent') {
+    healthHTML = `<div class="health-badge health-error">❌ 세션 미연결 — ${escapeHtml(task._healthMessage || '')}</div>`;
+  } else if (hs === 'waiting') {
+    healthHTML = `<div class="health-badge health-waiting">⏳ ${escapeHtml(task._healthMessage || '대기 중')}</div>`;
+  } else if (hs === 'agent_done') {
+    healthHTML = `<div class="health-badge health-done">✅ ${escapeHtml(task._healthMessage || '')}</div>`;
+  }
+
+  if (task.status === 'done' && task.agent) {
     agentStatusHTML = `
       <div class="card-agent-status completed-status">
         <div class="card-spinner done"></div>
@@ -210,6 +227,7 @@ function renderCard(task) {
       </div>
       <span class="role-badge ${roleClass}">${assignee || task.role || 'unassigned'}</span>
       ${timeInfo}
+      ${healthHTML}
       <div class="card-meta">
         <span>
           ${task.status === 'done' ? '✅ Done' : isWorking ? '' : ''}

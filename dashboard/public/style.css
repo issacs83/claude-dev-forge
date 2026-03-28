@@ -550,6 +550,41 @@ body {
 }
 .close-btn:hover { background: var(--border); }
 
+/* Health status badges */
+.health-badge {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin: 6px 0;
+  line-height: 1.4;
+}
+.health-timeout {
+  background: rgba(239,68,68,0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(239,68,68,0.3);
+}
+.health-stale {
+  background: rgba(245,158,11,0.15);
+  color: var(--accent-orange);
+  border: 1px solid rgba(245,158,11,0.3);
+  animation: pulse-glow 2s infinite;
+}
+.health-error {
+  background: rgba(239,68,68,0.15);
+  color: var(--accent-red);
+  border: 1px solid rgba(239,68,68,0.3);
+}
+.health-waiting {
+  background: rgba(100,116,139,0.15);
+  color: var(--text-muted);
+  border: 1px solid rgba(100,116,139,0.3);
+}
+.health-done {
+  background: rgba(34,197,94,0.1);
+  color: var(--accent-green);
+  border: 1px solid rgba(34,197,94,0.3);
+}
+
 /* Phase checkboxes */
 .phase-check {
   display: flex;
