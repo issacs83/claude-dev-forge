@@ -39,6 +39,7 @@ function render() {
   renderPhases();
   renderProjects();
   renderKanban();
+  renderSessions();
   renderAgents();
   renderDocuments();
 }
@@ -883,11 +884,27 @@ async function setupProject() {
     }
   }, 500);
 
+  // Auto-start Claude session if checked
+  const autoSession = document.getElementById('setupAutoSession');
+  const projectPath = document.getElementById('setupProjectPath').value.trim();
+  if (autoSession && autoSession.checked && data.project) {
+    await fetch('/api/sessions/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectName: name,
+        projectPath: projectPath || '/home/issacs/work',
+        projectId: data.project.id
+      })
+    });
+  }
+
   // Show success banner
+  const sessionMsg = (autoSession && autoSession.checked) ? ' + Claude 세션 시작됨' : '';
   const banner = document.createElement('div');
   banner.className = 'setup-banner';
   banner.innerHTML = `
-    <span class="text">✅ "${escapeHtml(name)}" 프로젝트 셋업 완료 — ${data.tasks ? data.tasks.length : 0}개 PDLC 태스크 생성됨 (${domain})</span>
+    <span class="text">✅ "${escapeHtml(name)}" 프로젝트 셋업 완료 — ${data.tasks ? data.tasks.length : 0}개 PDLC 태스크 생성됨 (${domain})${sessionMsg}</span>
     <button class="dismiss" onclick="this.parentElement.remove()">×</button>
   `;
   const board = document.getElementById('kanbanBoard');
@@ -1185,6 +1202,60 @@ function dismissNotification(id) {
 connect();
 
 // Fetch initial state via REST as fallback
+// --- Sessions ---
+async function renderSessions() {
+  const list = document.getElementById('sessionList');
+  if (!list) return;
+  try {
+    const res = await fetch('/api/sessions');
+    const sessions = await res.json();
+    if (!sessions.length) {
+      list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">No active sessions</div>';
+      return;
+    }
+    list.innerHTML = sessions.map(s => {
+      const isJun = s.name.startsWith('jun-');
+      const statusColor = s.command === 'claude' ? 'var(--accent-green)' : 'var(--text-muted)';
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(51,65,85,0.3);font-size:13px">
+          <span style="width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
+          <span style="font-weight:500;min-width:120px">${escapeHtml(s.name)}</span>
+          <span style="color:var(--text-muted);flex:1">${escapeHtml(s.cwd || '')}</span>
+          <span style="color:var(--text-secondary);font-size:11px">${s.command}</span>
+          ${isJun ? `<button onclick="stopSession('${s.name}')" style="padding:3px 8px;background:rgba(239,68,68,0.15);color:var(--accent-red);border:1px solid rgba(239,68,68,0.3);border-radius:4px;cursor:pointer;font-size:11px">종료</button>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">세션 조회 실패</div>';
+  }
+}
+
+async function startNewSession(projectName, projectPath) {
+  const res = await fetch('/api/sessions/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectName: projectName || 'new', projectPath: projectPath || '/home/issacs/work' })
+  });
+  const data = await res.json();
+  showInfoNotification('세션', data.message || '세션 시작됨');
+  renderSessions();
+}
+
+async function stopSession(windowName) {
+  if (!confirm(`"${windowName}" 세션을 종료하시겠습니까?`)) return;
+  await fetch('/api/sessions/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ windowName })
+  });
+  showInfoNotification('세션', `"${windowName}" 종료됨`);
+  renderSessions();
+}
+
+// Refresh sessions every 5s
+setInterval(renderSessions, 5000);
+
 function fetchAndRender() {
   fetch('/api/status')
     .then(r => r.json())

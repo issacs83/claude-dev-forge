@@ -104,6 +104,15 @@
     </div>
   </div>
 
+  <!-- Claude Sessions Panel -->
+  <div class="agent-panel" id="sessionPanel">
+    <div class="panel-header" onclick="togglePanel('sessionPanel')">
+      <span>Claude Sessions</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="panel-body" id="sessionList"></div>
+  </div>
+
   <!-- Agent Monitor Panel -->
   <div class="agent-panel" id="agentPanel">
     <div class="panel-header" onclick="togglePanel('agentPanel')">
@@ -193,6 +202,14 @@
         <label class="phase-check"><input type="checkbox" value="10" checked> P10: 검증</label>
         <label class="phase-check"><input type="checkbox" value="11" checked> P11: 평가</label>
       </div>
+
+      <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">프로젝트 경로</label>
+      <input id="setupProjectPath" placeholder="/home/issacs/work/my-project (선택)" />
+
+      <label class="phase-check" style="margin-top:8px">
+        <input type="checkbox" id="setupAutoSession" checked>
+        Claude Code 세션 자동 시작 (tmux)
+      </label>
 
       <div class="modal-actions" style="margin-top:16px">
         <button onclick="setupProject()">Setup & Start</button>

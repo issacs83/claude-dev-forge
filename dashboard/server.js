@@ -220,6 +220,88 @@ app.get('/api/phases/:id', (req, res) => {
   res.json(detail);
 });
 
+// --- Session Management (tmux + claude) ---
+const { execSync, exec } = require('child_process');
+
+// List active tmux windows
+app.get('/api/sessions', (req, res) => {
+  try {
+    const out = execSync('tmux list-windows -t work -F "#{window_index}|#{window_name}|#{pane_current_command}|#{pane_current_path}" 2>/dev/null', { encoding: 'utf-8' });
+    const windows = out.trim().split('\n').filter(Boolean).map(line => {
+      const [index, name, command, cwd] = line.split('|');
+      return { index: parseInt(index), name, command, cwd, isClaudeSession: command === 'claude' || name.startsWith('jun-') };
+    });
+    res.json(windows);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+// Start new Claude Code session in tmux
+app.post('/api/sessions/start', (req, res) => {
+  const { projectName, projectPath, projectId } = req.body;
+  if (!projectName) return res.status(400).json({ error: 'projectName required' });
+
+  const safeName = 'jun-' + projectName.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 20);
+  const workDir = projectPath || `/home/issacs/work`;
+
+  try {
+    // Check if session with this name already exists
+    try {
+      const existing = execSync(`tmux list-windows -t work -F "#{window_name}" 2>/dev/null`, { encoding: 'utf-8' });
+      if (existing.includes(safeName)) {
+        // Focus existing window
+        execSync(`tmux select-window -t work:${safeName} 2>/dev/null`);
+        return res.json({ ok: true, action: 'focused', window: safeName, message: `기존 세션 "${safeName}" 으로 전환됨` });
+      }
+    } catch (e) { /* no existing */ }
+
+    // Create new tmux window with claude
+    const cmd = `tmux new-window -t work -n "${safeName}" "cd ${workDir} && claude" 2>/dev/null`;
+    exec(cmd);
+
+    // If projectId, send initial context after claude starts
+    if (projectId) {
+      setTimeout(() => {
+        try {
+          const initMsg = `이 프로젝트는 Jun.AI Dashboard(http://58.29.21.11:7700)에 등록된 "${projectName}" 프로젝트입니다. 대시보드 API를 통해 진행 상황을 보고하세요.`;
+          execSync(`tmux send-keys -t work:${safeName} "${initMsg}" Enter 2>/dev/null`);
+        } catch (e) { /* ignore */ }
+      }, 3000);
+    }
+
+    res.json({ ok: true, action: 'created', window: safeName, message: `새 세션 "${safeName}" 시작됨` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Stop/close a tmux window
+app.post('/api/sessions/stop', (req, res) => {
+  const { windowName } = req.body;
+  if (!windowName) return res.status(400).json({ error: 'windowName required' });
+  try {
+    execSync(`tmux kill-window -t work:${windowName} 2>/dev/null`);
+    res.json({ ok: true, message: `세션 "${windowName}" 종료됨` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Send message to a running claude session
+app.post('/api/sessions/send', (req, res) => {
+  const { windowName, message } = req.body;
+  if (!windowName || !message) return res.status(400).json({ error: 'windowName and message required' });
+  try {
+    // Escape double quotes in message
+    const escaped = message.replace(/"/g, '\\"');
+    execSync(`tmux send-keys -t work:${windowName} "${escaped}" Enter 2>/dev/null`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Confirm response (from dashboard UI)
 app.post('/api/confirm', (req, res) => {
   const { id, approved } = req.body;
