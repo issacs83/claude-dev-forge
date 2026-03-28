@@ -2647,6 +2647,8 @@ function initTerminal() {
     cursorBlink: true,
     fontSize: 13,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+    scrollOnUserInput: true,
+    altClickMovesCursor: true,
     theme: {
       background: '#0a0e14',
       foreground: '#b3b1ad',
@@ -2687,15 +2689,46 @@ function initTerminal() {
       }).catch(() => {});
       return false;
     }
-    // Shift+Enter: send newline
+    // Shift+Enter: send backslash + Enter (multiline in Claude CLI)
     if (ev.shiftKey && ev.key === 'Enter' && ev.type === 'keydown') {
       if (termWs && termWs.readyState === WebSocket.OPEN) {
-        termWs.send('\n');
+        termWs.send('\\\n');
       }
+      return false;
+    }
+    // Ctrl+Shift+V: also paste (some browsers)
+    if (ev.ctrlKey && ev.shiftKey && ev.key === 'V' && ev.type === 'keydown') {
+      navigator.clipboard.readText().then(text => {
+        if (text && termWs && termWs.readyState === WebSocket.OPEN) termWs.send(text);
+      }).catch(() => {});
+      return false;
+    }
+    // Shift+Up/Down: scroll terminal history
+    if (ev.shiftKey && ev.key === 'ArrowUp' && ev.type === 'keydown') {
+      term.scrollLines(-3);
+      return false;
+    }
+    if (ev.shiftKey && ev.key === 'ArrowDown' && ev.type === 'keydown') {
+      term.scrollLines(3);
+      return false;
+    }
+    // Shift+PageUp/PageDown: scroll full page
+    if (ev.shiftKey && ev.key === 'PageUp' && ev.type === 'keydown') {
+      term.scrollPages(-1);
+      return false;
+    }
+    if (ev.shiftKey && ev.key === 'PageDown' && ev.type === 'keydown') {
+      term.scrollPages(1);
       return false;
     }
     return true;
   });
+
+  // Mouse wheel scroll support (ensure it works even when tmux captures mouse)
+  container.addEventListener('wheel', (e) => {
+    if (e.deltaY < 0) { term.scrollLines(-3); }
+    else { term.scrollLines(3); }
+  }, { passive: true });
 
   // Auto-fit on resize
   window.addEventListener('resize', () => { if (fitAddon) fitAddon.fit(); });
