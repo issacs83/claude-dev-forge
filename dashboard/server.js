@@ -105,6 +105,21 @@ setInterval(() => {
       }
     }
   });
+
+  // --- Team Lead (project-director) auto-management ---
+  // Auto-mark tasks done when agent is completed
+  tasks.forEach(task => {
+    if (task.status !== 'in_progress' || !task.agent) return;
+    const agent = agents[task.agent];
+    if (agent && agent.status === 'completed') {
+      task.status = 'done';
+      task.updatedAt = new Date().toISOString();
+      state._addHistory(task.id, 'auto_done', `${task.agent} 완료 → 자동 Done`);
+      broadcast({ type: 'state_update', data: state.getFullState() });
+      saveState();
+    }
+  });
+
 }, 30000); // Check every 30 seconds
 
 // Save on process exit

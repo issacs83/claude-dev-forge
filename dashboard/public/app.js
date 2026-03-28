@@ -933,24 +933,75 @@ function renderAgents() {
 
 function renderDocuments() {
   const list = document.getElementById('docList');
-  const docs = state.documents || [];
+  let docs = state.documents || [];
 
   if (!docs.length) {
-    list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">No documents yet</div>';
+    list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">산출물 없음</div>';
     return;
   }
 
-  const formatIcons = { docx: '📄', pptx: '📊', hwpx: '📝', xlsx: '📈', pdf: '📋' };
+  // Category filter
+  const filterEl = document.getElementById('outputCategoryFilter');
+  const categoryFilter = filterEl ? filterEl.value : 'all';
+  if (categoryFilter !== 'all') {
+    docs = docs.filter(d => d.category === categoryFilter);
+  }
 
-  list.innerHTML = docs.map(d => `
-    <div class="doc-row">
-      <span class="doc-icon">${formatIcons[d.format] || '📄'}</span>
-      <span>${d.file}</span>
-      <span class="doc-phase">Phase ${d.phase}</span>
-      <span>.${d.format}</span>
-      <span style="color:var(--text-muted)">${formatTime(d.createdAt)}</span>
-    </div>
-  `).join('');
+  if (!docs.length) {
+    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px">"${categoryFilter}" 카테고리 산출물 없음</div>`;
+    return;
+  }
+
+  const formatIcons = { docx: '📄', pptx: '📊', hwpx: '📝', xlsx: '📈', pdf: '📋', png: '🖼', jpg: '🖼', svg: '🖼' };
+  const categoryLabels = {
+    analysis: '분석', design: '설계', certification: '인증', test: '테스트',
+    manual: '매뉴얼', presentation: '발표', data: '데이터', official: '공문서',
+    media: '미디어', document: '문서'
+  };
+  const categoryColors = {
+    analysis: 'var(--accent-blue)', design: 'var(--accent-purple)', certification: 'var(--accent-red)',
+    test: 'var(--accent-green)', manual: 'var(--accent-cyan)', presentation: 'var(--accent-orange)',
+    data: 'var(--accent-gold)', official: 'var(--accent-pink)', media: 'var(--text-muted)', document: 'var(--text-secondary)'
+  };
+
+  // Group by directory (phase)
+  const groups = {};
+  docs.forEach(d => {
+    const dir = d.file ? d.file.split('/').slice(0, -1).join('/') || 'root' : 'root';
+    if (!groups[dir]) groups[dir] = [];
+    groups[dir].push(d);
+  });
+
+  let html = '';
+
+  // Stats bar
+  const totalCount = docs.length;
+  const formatCounts = {};
+  docs.forEach(d => { formatCounts[d.format] = (formatCounts[d.format] || 0) + 1; });
+  const formatStats = Object.entries(formatCounts).map(([f, c]) => `.${f}: ${c}`).join(' | ');
+  html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">총 ${totalCount}개 산출물 | ${formatStats}</div>`;
+
+  // Grouped list
+  Object.keys(groups).sort().forEach(dir => {
+    html += `<div style="margin-bottom:8px">`;
+    html += `<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">📁 ${escapeHtml(dir)} (${groups[dir].length})</div>`;
+    groups[dir].forEach(d => {
+      const icon = formatIcons[d.format] || '📄';
+      const cat = d.category || 'document';
+      const catLabel = categoryLabels[cat] || cat;
+      const catColor = categoryColors[cat] || 'var(--text-muted)';
+      const fileName = d.file ? d.file.split('/').pop() : 'unknown';
+      html += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0 3px 16px;font-size:12px">
+        <span>${icon}</span>
+        <span style="flex:1">${escapeHtml(fileName)}</span>
+        <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
+        <span style="color:var(--text-muted);font-size:10px">${getTimeAgo(d.createdAt)}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+
+  list.innerHTML = html;
 }
 
 // --- Actions ---

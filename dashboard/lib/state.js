@@ -73,6 +73,14 @@ class StateManager {
           if (event.output_files) {
             this.agents[event.agent].outputFiles = event.output_files;
           }
+          // Auto-mark related in_progress tasks as done
+          this.tasks.forEach(t => {
+            if (t.agent === event.agent && t.status === 'in_progress') {
+              t.status = 'done';
+              t.updatedAt = event.timestamp || new Date().toISOString();
+              this._addHistory(t.id, 'status_change', `in_progress → done (${event.agent} 완료)`);
+            }
+          });
         }
         break;
 
