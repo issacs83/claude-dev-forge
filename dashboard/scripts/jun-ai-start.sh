@@ -56,6 +56,33 @@ else
     echo "[$(date)] tmux work session exists" >> "$LOG_DIR/startup.log"
 fi
 
+# --- 5. 프로젝트별 Claude 세션 복원 ---
+STATE_FILE="$DASHBOARD_DIR/data/state.json"
+if [ -f "$STATE_FILE" ]; then
+    # Read projects with projectDir and sessionName from state.json
+    python3 -c "
+import json
+with open('$STATE_FILE') as f:
+    data = json.load(f)
+for p in data.get('projects', []):
+    d = p.get('projectDir', '')
+    s = p.get('sessionName', '')
+    if d and s and p.get('status') == 'active':
+        print(f'{s}|{d}')
+" 2>/dev/null | while IFS='|' read -r session_name project_dir; do
+        # Check if this tmux window already exists
+        if ! tmux list-windows -t work -F '#{window_name}' 2>/dev/null | grep -q "^${session_name}$"; then
+            if [ -d "$project_dir" ]; then
+                tmux new-window -t work -n "$session_name" "cd $project_dir && claude --resume"
+                echo "[$(date)] Claude session restored: $session_name → $project_dir" >> "$LOG_DIR/startup.log"
+                sleep 2
+            fi
+        else
+            echo "[$(date)] Claude session already exists: $session_name" >> "$LOG_DIR/startup.log"
+        fi
+    done
+fi
+
 # --- 5. Verify ---
 echo "[$(date)] === Verification ===" >> "$LOG_DIR/startup.log"
 echo "Dashboard: $(lsof -i :7700 -sTCP:LISTEN -t 2>/dev/null && echo OK || echo FAIL)" >> "$LOG_DIR/startup.log"
