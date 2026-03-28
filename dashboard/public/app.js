@@ -1042,14 +1042,14 @@ async function renderDocuments() {
       const sizeStr = totalSize > 1048576 ? (totalSize / 1048576).toFixed(1) + ' MB' : (totalSize / 1024).toFixed(0) + ' KB';
       const fmtStats = Object.entries(data.formatCounts || {}).map(([f, c]) => `.${f}:${c}`).join(' | ');
 
-      // Toolbar: expand all / collapse all
+      // Toolbar: Expand All / Collapse All
       let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">
         <span style="font-size:11px;color:var(--text-muted)">총 ${data.totalFiles}개 파일 | ${sizeStr} | ${fmtStats}</span>
         <div style="display:flex;gap:4px">
-          <button onclick="document.querySelectorAll('.output-dir-body').forEach(e=>e.style.display='block');document.querySelectorAll('.dir-toggle').forEach(e=>e.textContent='−')"
-                  style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:3px;padding:2px 6px;font-size:10px;cursor:pointer" title="전체 확장">▼ All</button>
-          <button onclick="document.querySelectorAll('.output-dir-body').forEach(e=>e.style.display='none');document.querySelectorAll('.dir-toggle').forEach(e=>e.textContent='+')"
-                  style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:3px;padding:2px 6px;font-size:10px;cursor:pointer" title="전체 축소">▲ All</button>
+          <button onclick="expandAllDirs()"
+                  style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer">Expand All</button>
+          <button onclick="collapseAllDirs()"
+                  style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer">Collapse All</button>
         </div>
       </div>`;
 
@@ -1065,13 +1065,14 @@ async function renderDocuments() {
         if (dirFiles.length === 0) return;
 
         const dirId = 'outdir-' + (dirIdx++);
+        const isOpen = _outputDirState[dir] === true;
         html += `<div style="margin-bottom:4px">`;
-        html += `<div style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 0" onclick="var b=document.getElementById('${dirId}');var t=this.querySelector('.dir-toggle');if(b.style.display==='none'){b.style.display='block';t.textContent='−'}else{b.style.display='none';t.textContent='+'}">
-          <span class="dir-toggle" style="display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;background:var(--bg-hover);border-radius:3px;font-size:11px;color:var(--text-secondary);font-weight:700;flex-shrink:0">+</span>
+        html += `<div style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 0" onclick="toggleOutputDir('${dirId}','${escapeHtml(dir)}')">
+          <span id="tog-${dirId}" class="dir-toggle" style="display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;background:var(--bg-hover);border-radius:3px;font-size:11px;color:var(--text-secondary);font-weight:700;flex-shrink:0">${isOpen ? '−' : '+'}</span>
           <span style="font-size:12px;font-weight:500;color:var(--text-secondary)">📁 ${escapeHtml(dir)}</span>
           <span style="font-size:10px;color:var(--text-muted)">(${dirFiles.length})</span>
         </div>`;
-        html += `<div id="${dirId}" class="output-dir-body" style="display:none">`;
+        html += `<div id="${dirId}" class="output-dir-body" style="display:${isOpen ? 'block' : 'none'}">`;
         dirFiles.forEach(f => {
           const icon = formatIcons[f.format] || '📄';
           const cat = f.category || 'document';
@@ -1502,6 +1503,44 @@ function dismissNotification(id) {
     el.style.animation = 'fadeOut 0.3s ease-out';
     setTimeout(() => el.remove(), 300);
   }
+}
+
+// --- Output Directory State (persisted in localStorage) ---
+let _outputDirState = {};
+try { _outputDirState = JSON.parse(localStorage.getItem('jun_output_dirs') || '{}'); } catch(e) {}
+
+function toggleOutputDir(dirId, dirName) {
+  const body = document.getElementById(dirId);
+  const tog = document.getElementById('tog-' + dirId);
+  if (!body) return;
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    if (tog) tog.textContent = '−';
+    _outputDirState[dirName] = true;
+  } else {
+    body.style.display = 'none';
+    if (tog) tog.textContent = '+';
+    _outputDirState[dirName] = false;
+  }
+  try { localStorage.setItem('jun_output_dirs', JSON.stringify(_outputDirState)); } catch(e) {}
+}
+
+function expandAllDirs() {
+  document.querySelectorAll('.output-dir-body').forEach(e => e.style.display = 'block');
+  document.querySelectorAll('.dir-toggle').forEach(e => e.textContent = '−');
+  // Save all as open
+  document.querySelectorAll('.output-dir-body').forEach(e => {
+    const dirName = e.previousElementSibling?.querySelector('[style*="font-weight:500"]')?.textContent?.replace('📁 ', '') || '';
+    if (dirName) _outputDirState[dirName] = true;
+  });
+  try { localStorage.setItem('jun_output_dirs', JSON.stringify(_outputDirState)); } catch(e) {}
+}
+
+function collapseAllDirs() {
+  document.querySelectorAll('.output-dir-body').forEach(e => e.style.display = 'none');
+  document.querySelectorAll('.dir-toggle').forEach(e => e.textContent = '+');
+  _outputDirState = {};
+  try { localStorage.setItem('jun_output_dirs', JSON.stringify(_outputDirState)); } catch(e) {}
 }
 
 // --- File Viewer ---
