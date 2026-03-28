@@ -1632,9 +1632,9 @@ async function openFile(url, fileName) {
 // --- Project Chat ---
 let _chatOpen = false;
 let _chatPendingFiles = [];
-// Restore pending state from sessionStorage
+// Restore pending state from localStorage
 try {
-  const saved = sessionStorage.getItem('jun_chat_pending');
+  const saved = localStorage.getItem('jun_chat_pending');
   if (saved) {
     const p = JSON.parse(saved);
     _chatPendingFiles = p.files || [];
@@ -1644,7 +1644,7 @@ try {
 
 function saveChatPending() {
   try {
-    sessionStorage.setItem('jun_chat_pending', JSON.stringify({
+    localStorage.setItem('jun_chat_pending', JSON.stringify({
       files: _chatPendingFiles,
       text: _chatPendingText
     }));
@@ -1660,7 +1660,7 @@ function toggleChat() {
     updateChatConnStatus();
     // Restore input + attachments
     const input = document.getElementById('chatInput');
-    const savedInput = sessionStorage.getItem('jun_chat_input');
+    const savedInput = localStorage.getItem('jun_chat_input');
     if (input && savedInput) { input.value = savedInput; autoResizeChatInput(input); }
     if (_chatPendingFiles.length || _chatPendingText) updateChatPreview();
   }
@@ -1853,8 +1853,8 @@ async function sendChatMessage() {
     }
 
     input.value = '';
-    sessionStorage.removeItem('jun_chat_pending');
-    sessionStorage.removeItem('jun_chat_input');
+    localStorage.removeItem('jun_chat_pending');
+    localStorage.removeItem('jun_chat_input');
     await loadChatHistory();
 
     // Show "waiting for response" after send
@@ -1881,7 +1881,7 @@ function handleChatKeydown(event) {
 function autoResizeChatInput(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-  try { sessionStorage.setItem('jun_chat_input', el.value); } catch(e) {}
+  try { localStorage.setItem('jun_chat_input', el.value); } catch(e) {}
 }
 
 // Paste: image or large text
@@ -1915,9 +1915,9 @@ function handleChatPaste(event) {
   }
 }
 
-// Pending attachments (restored from sessionStorage above)
+// Pending attachments (restored from localStorage above)
 let _chatPendingText = null;
-try { const s = sessionStorage.getItem('jun_chat_pending'); if (s) _chatPendingText = JSON.parse(s).text || null; } catch(e) {}
+try { const s = localStorage.getItem('jun_chat_pending'); if (s) _chatPendingText = JSON.parse(s).text || null; } catch(e) {}
 
 function updateChatPreview() {
   const preview = document.getElementById('chatPreview');
