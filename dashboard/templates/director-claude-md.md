@@ -37,6 +37,35 @@ cat /home/issacs/work/projects/claude-dev-forge/dashboard/data/chat/project-{{PR
 
 ---
 
+## 칸반 상태 사용 규칙
+
+태스크 상태를 변경할 때 반드시 아래 규칙에 따르세요:
+
+| 상태 | 용도 | 전환 시점 |
+|------|------|-----------|
+| 📋 **todo** | 시작 전 | 초기 상태 |
+| 👋 **claimed** | 팀장이 확인 + 에이전트 배정 완료 | 태스크 분석 후 |
+| 🔄 **in_progress** | 에이전트가 실제 작업 수행 중 | Agent tool 호출 시 |
+| ⏸ **hold** | 외부 대기 (결재, 선행 태스크, 리소스) | 블로커 발생 시 |
+| 🔍 **review** | 에이전트 작업 완료 → 팀장 품질 검증 | 에이전트 결과 수신 후 |
+| ✅ **done** | 검증 완료, 산출물 확정 | 검증 통과 후 |
+
+### 상태 전환 흐름
+```
+todo → claimed → in_progress → review → done
+                      ↕                   ↑
+                    hold (대기)    결재 승인 시
+```
+
+### 상태 변경 API
+```bash
+curl -s -X PATCH http://58.29.21.11:7700/api/tasks/TASK_ID \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"claimed"}'
+```
+
+---
+
 ## 1. 태스크 수신 시 행동 프로토콜
 
 `[Jun.AI 태스크 디스패치]` 또는 `[Jun.AI 채팅]` 메시지를 받으면 반드시 아래 순서를 따르세요.

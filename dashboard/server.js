@@ -223,6 +223,26 @@ setInterval(() => {
     }
   });
 
+  // --- Phase-Task Sync ---
+  // Ensure Phase status matches actual task statuses
+  const phases = state.getPhases();
+  phases.forEach(phase => {
+    const phaseTasks = tasks.filter(t => t.phase === phase.id);
+    if (!phaseTasks.length) return;
+    const allDone = phaseTasks.every(t => t.status === 'done');
+    const anyInProgress = phaseTasks.some(t => t.status === 'in_progress');
+    const noneInProgress = !anyInProgress && !allDone;
+
+    if (allDone && phase.status !== 'completed') {
+      phase.status = 'completed';
+      phase.completedAt = new Date().toISOString();
+    } else if (anyInProgress && phase.status !== 'in_progress') {
+      phase.status = 'in_progress';
+    } else if (noneInProgress && phase.status === 'in_progress') {
+      phase.status = 'pending';
+    }
+  });
+
   // --- Claude Session Stuck Detection ---
   // Auto-answer prompts that block Claude sessions
   state.getProjects().forEach(project => {
