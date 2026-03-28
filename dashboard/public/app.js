@@ -666,7 +666,7 @@ async function openTaskDetail(taskId) {
 
       <div style="margin:12px 0">
         <label>히스토리:</label>
-        <div style="max-height:120px;overflow-y:auto;background:var(--bg-primary);border-radius:6px;padding:8px">${historyHTML}</div>
+        <div id="taskHistory" style="max-height:120px;overflow-y:auto;background:var(--bg-primary);border-radius:6px;padding:8px">${historyHTML}</div>
       </div>
 
       <div style="margin:12px 0">
@@ -693,6 +693,14 @@ async function openTaskDetail(taskId) {
     </div>
   `;
   document.body.appendChild(modal);
+
+  // Auto-scroll history and comments to bottom
+  setTimeout(() => {
+    const historyEl = modal.querySelector('[id="taskHistory"]') || modal.querySelectorAll('[style*="max-height:120px"]')[0];
+    if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
+    const commentEl = document.getElementById('commentArea');
+    if (commentEl) commentEl.scrollTop = commentEl.scrollHeight;
+  }, 100);
 }
 
 async function changeTaskStatus(taskId, newStatus) {

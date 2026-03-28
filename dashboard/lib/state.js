@@ -265,7 +265,15 @@ class StateManager {
 
   // --- Task Documents ---
   getTaskDocuments(taskId) {
-    return this.documents.filter(d => d.taskId === taskId);
+    const task = this.tasks.find(t => t.id === taskId);
+    // Match by taskId OR by phase
+    const byTaskId = this.documents.filter(d => d.taskId === taskId);
+    if (byTaskId.length > 0) return byTaskId;
+    // Fallback: match by phase
+    if (task && task.phase !== undefined) {
+      return this.documents.filter(d => d.phase === task.phase);
+    }
+    return [];
   }
 
   // --- Phase Detail ---
