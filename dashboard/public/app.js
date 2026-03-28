@@ -2689,13 +2689,8 @@ function initTerminal() {
       }).catch(() => {});
       return false;
     }
-    // Shift+Enter: open Vim editor for multiline input (Claude CLI: Ctrl+G)
-    if (ev.shiftKey && ev.key === 'Enter' && ev.type === 'keydown') {
-      if (termWs && termWs.readyState === WebSocket.OPEN) {
-        termWs.send('\x07'); // Ctrl+G = open Vim editor in Claude CLI
-      }
-      return false;
-    }
+    // Shift+Enter: pass through as normal Enter (no special handling)
+    // Claude CLI does not support multiline input via keyboard
     // Ctrl+Shift+V: also paste (some browsers)
     if (ev.ctrlKey && ev.shiftKey && ev.key === 'V' && ev.type === 'keydown') {
       navigator.clipboard.readText().then(text => {
