@@ -88,6 +88,15 @@ class StateManager {
         if (this.phases[event.phase]) {
           this.phases[event.phase].status = 'completed';
           this.phases[event.phase].completedAt = event.timestamp;
+          // Auto-complete all tasks in this phase
+          this.tasks.forEach(t => {
+            if (t.phase === event.phase && t.status !== 'done') {
+              const oldStatus = t.status;
+              t.status = 'done';
+              t.updatedAt = event.timestamp || new Date().toISOString();
+              this._addHistory(t.id, 'status_change', `${oldStatus} → done (Phase 완료)`);
+            }
+          });
         }
         break;
 
@@ -97,6 +106,7 @@ class StateManager {
           format: event.format,
           phase: event.phase,
           taskId: event.taskId || null,
+          category: event.category || this._inferCategory(event.format, event.file),
           createdAt: event.timestamp
         });
         break;
@@ -297,6 +307,66 @@ class StateManager {
   getTimeline() { return this.timeline; }
   getDocuments() { return this.documents; }
   getPhases() { return this.phases; }
+
+  // --- Document Category Inference ---
+  _inferCategory(format, filename) {
+    const f = (filename || '').toLowerCase();
+    if (f.includes('fda') || f.includes('510k') || f.includes('ce_') || f.includes('dhf') || f.includes('kc') || f.includes('인증')) return 'certification';
+    if (f.includes('manual') || f.includes('매뉴얼') || f.includes('guide') || f.includes('가이드')) return 'manual';
+    if (f.includes('test') || f.includes('테스트') || f.includes('v&v') || f.includes('검증')) return 'test';
+    if (f.includes('설계') || f.includes('design') || f.includes('srs') || f.includes('sds') || f.includes('아키텍처')) return 'design';
+    if (f.includes('분석') || f.includes('analysis') || f.includes('보고서') || f.includes('report')) return 'analysis';
+    if (format === 'pptx') return 'presentation';
+    if (format === 'xlsx') return 'data';
+    if (format === 'hwpx') return 'official';
+    if (format === 'png' || format === 'jpg' || format === 'svg') return 'media';
+    return 'document';
+  }
+
+  // --- Data Persistence ---
+  save(filePath) {
+    const fs = require('fs');
+    const data = {
+      projects: this.projects,
+      projectIdCounter: this.projectIdCounter,
+      tasks: this.tasks,
+      taskIdCounter: this.taskIdCounter,
+      agents: this.agents,
+      phases: this.phases,
+      documents: this.documents,
+      timeline: this.timeline.slice(-200),
+      debugLoops: this.debugLoops,
+      comments: this.comments,
+      taskHistory: this.taskHistory,
+      commentIdCounter: this.commentIdCounter,
+      savedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  }
+
+  load(filePath) {
+    const fs = require('fs');
+    try {
+      if (!fs.existsSync(filePath)) return false;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const data = JSON.parse(raw);
+      this.projects = data.projects || [];
+      this.projectIdCounter = data.projectIdCounter || 0;
+      this.tasks = data.tasks || [];
+      this.taskIdCounter = data.taskIdCounter || 0;
+      this.agents = data.agents || {};
+      this.phases = data.phases || this._initPhases();
+      this.documents = data.documents || [];
+      this.timeline = data.timeline || [];
+      this.debugLoops = data.debugLoops || [];
+      this.comments = data.comments || {};
+      this.taskHistory = data.taskHistory || {};
+      this.commentIdCounter = data.commentIdCounter || 0;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
 }
 
 module.exports = { StateManager };

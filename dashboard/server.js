@@ -4,11 +4,29 @@ const WebSocket = require('ws');
 const path = require('path');
 const { StateManager } = require('./lib/state');
 
+const fs = require('fs');
 const PORT = process.env.DASHBOARD_PORT || 7700;
+const DATA_FILE = path.join(__dirname, 'data', 'state.json');
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const state = new StateManager();
+
+// Load persisted state on startup
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+if (state.load(DATA_FILE)) {
+  console.log('  ✓ State restored from', DATA_FILE);
+}
+
+// Auto-save every 30 seconds
+setInterval(() => {
+  state.save(DATA_FILE);
+}, 30000);
+
+// Save on process exit
+process.on('SIGINT', () => { state.save(DATA_FILE); process.exit(0); });
+process.on('SIGTERM', () => { state.save(DATA_FILE); process.exit(0); });
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -31,9 +49,28 @@ app.get('/api/timeline', (req, res) => {
   res.json(state.getTimeline());
 });
 
-// Get documents
+// Get documents (with optional category filter)
 app.get('/api/documents', (req, res) => {
-  res.json(state.getDocuments());
+  let docs = state.getDocuments();
+  if (req.query.category) {
+    docs = docs.filter(d => d.category === req.query.category);
+  }
+  if (req.query.phase !== undefined) {
+    docs = docs.filter(d => d.phase === parseInt(req.query.phase));
+  }
+  res.json(docs);
+});
+
+// Save state manually
+app.post('/api/save', (req, res) => {
+  state.save(DATA_FILE);
+  res.json({ ok: true, savedAt: new Date().toISOString(), file: DATA_FILE });
+});
+
+// Export full state
+app.get('/api/export', (req, res) => {
+  res.setHeader('Content-Disposition', 'attachment; filename=jun-ai-state.json');
+  res.json(state.getFullState());
 });
 
 // Get phases
@@ -97,20 +134,20 @@ app.post('/api/projects/setup', (req, res) => {
   // 1. Create project
   const project = state.createProject({ name, description: description || '', status: 'active' });
 
-  // 2. Define PDLC phases with default agents
+  // 2. Define PDLC phases with default agents and objectives
   const pdlcPhases = [
-    { phase: 0, title: 'Phase 0: 선행연구 (Prior Research)', role: 'research', agents: ['paper-patent-researcher'] },
-    { phase: 1, title: 'Phase 1: VOC (Voice of Customer)', role: 'research', agents: ['voc-researcher'] },
-    { phase: 2, title: 'Phase 2: 시장조사 (Market Research)', role: 'research', agents: ['product-strategist'] },
-    { phase: 3, title: 'Phase 3: 기획/디자인 (Planning & Design)', role: 'management', agents: ['ux-designer', 'marketing-strategist'] },
-    { phase: 4, title: 'Phase 4: 세부기획 (Detailed Planning)', role: 'management', agents: ['planner'] },
-    { phase: 5, title: 'Phase 5: 아키텍처 (Architecture)', role: 'dev', agents: ['architect', 'planner'] },
-    { phase: 6, title: 'Phase 6: 파트별 설계 (Part Design)', role: 'dev', agents: [] },
-    { phase: 7, title: 'Phase 7: 세부설계 (Detailed Design)', role: 'dev', agents: ['security-reviewer'] },
-    { phase: 8, title: 'Phase 8: 구현 (Implementation)', role: 'dev', agents: ['tdd-guide', 'verify-agent'] },
-    { phase: 9, title: 'Phase 9: 테스트 (Testing)', role: 'test', agents: ['qa-engineer', 'e2e-tester'] },
-    { phase: 10, title: 'Phase 10: 검증 (Verification)', role: 'test', agents: ['regulatory-specialist'] },
-    { phase: 11, title: 'Phase 11: 평가 (Evaluation)', role: 'management', agents: ['evaluator'] }
+    { phase: 0, title: 'Phase 0: 선행연구 (Prior Research)', role: 'research', agents: ['paper-patent-researcher'], objective: '관련 기술 논문/특허 조사 및 SOTA 분석 보고서 작성' },
+    { phase: 1, title: 'Phase 1: VOC (Voice of Customer)', role: 'research', agents: ['voc-researcher'], objective: '고객 니즈 분석, 페르소나 정의, 요구사항 초안 도출' },
+    { phase: 2, title: 'Phase 2: 시장조사 (Market Research)', role: 'research', agents: ['product-strategist'], objective: '시장 규모(TAM/SAM/SOM), 경쟁사 분석, SWOT 보고서' },
+    { phase: 3, title: 'Phase 3: 기획/디자인 (Planning & Design)', role: 'management', agents: ['ux-designer', 'marketing-strategist'], objective: 'PRD, UX 사양서, GTM 전략서 작성' },
+    { phase: 4, title: 'Phase 4: 세부기획 (Detailed Planning)', role: 'management', agents: ['planner'], objective: 'SRS, HRS, ICD 문서, 위험분석 초안' },
+    { phase: 5, title: 'Phase 5: 아키텍처 (Architecture)', role: 'dev', agents: ['architect', 'planner'], objective: '시스템 아키텍처 문서, 기술 스택 결정, WBS' },
+    { phase: 6, title: 'Phase 6: 파트별 설계 (Part Design)', role: 'dev', agents: [], objective: '파트별 설계 문서, API 스펙, BOM' },
+    { phase: 7, title: 'Phase 7: 세부설계 (Detailed Design)', role: 'dev', agents: ['security-reviewer'], objective: '상세 설계서, DB 스키마, 보안 설계서' },
+    { phase: 8, title: 'Phase 8: 구현 (Implementation)', role: 'dev', agents: ['tdd-guide', 'verify-agent'], objective: '소스 코드 구현, 단위 테스트, 코드 리뷰' },
+    { phase: 9, title: 'Phase 9: 테스트 (Testing)', role: 'test', agents: ['qa-engineer', 'e2e-tester'], objective: '테스트 계획서, E2E 테스트 결과, 커버리지 리포트' },
+    { phase: 10, title: 'Phase 10: 검증 (Verification)', role: 'test', agents: ['regulatory-specialist'], objective: 'DHF, V&V 보고서, 적합성 선언서, 사용자 매뉴얼' },
+    { phase: 11, title: 'Phase 11: 평가 (Evaluation)', role: 'management', agents: ['evaluator'], objective: '평가 보고서, 회고록, KPI 분석, 개선 액션' }
   ];
 
   // Apply domain-specific agents to Phase 6
@@ -140,6 +177,7 @@ app.post('/api/projects/setup', (req, res) => {
       status: 'todo',
       phase: p.phase,
       agent: p.agents[0] || '',
+      objective: p.objective || '',
       description: `Agents: ${p.agents.join(', ') || 'TBD (domain-specific)'}`
     });
   });
@@ -205,6 +243,32 @@ app.post('/api/tasks/:id/comments', (req, res) => {
   const comment = state.addComment(req.params.id, from || 'user', message);
   broadcast({ type: 'task_comment', data: { taskId: req.params.id, comment } });
   broadcast({ type: 'state_update', data: state.getFullState() });
+
+  // If from user → forward to Claude tmux session
+  if ((from || 'user') === 'user') {
+    const task = state.getTask(req.params.id);
+    if (task) {
+      try {
+        const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
+        const lines = sessions.trim().split('\n');
+        // Find project session or any claude session
+        const project = state.getProjects().find(p => p.id === task.project);
+        let targetWindow = null;
+        if (project) {
+          const safeName = 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 20);
+          targetWindow = lines.find(l => l.startsWith(safeName + '|'));
+        }
+        if (!targetWindow) targetWindow = lines.find(l => l.includes('|claude'));
+        if (targetWindow) {
+          const windowName = targetWindow.split('|')[0];
+          const escaped = message.replace(/"/g, '\\"').replace(/'/g, "'");
+          const instruction = `[Jun.AI 사용자 메시지] 태스크 "${task.title}"에 대한 요청: ${escaped}`;
+          exec(`tmux send-keys -t work:${windowName} "${instruction.replace(/"/g, '\\"')}" Enter`);
+        }
+      } catch (e) { /* ignore tmux errors */ }
+    }
+  }
+
   res.json(comment);
 });
 
