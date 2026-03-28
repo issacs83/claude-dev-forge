@@ -1669,28 +1669,55 @@ async function updateChatConnStatus() {
 // Refresh connection status every 5s when chat is open
 setInterval(() => { if (_chatOpen) updateChatConnStatus(); }, 5000);
 
+let _activeChatProject = null;
+
 async function loadChatHistory() {
-  const pid = activeProjectFilter === 'all' ? (state.projects && state.projects[0] ? state.projects[0].id : '1') : activeProjectFilter;
-  const project = (state.projects || []).find(p => p.id === pid);
-  document.getElementById('chatProjectName').textContent = project ? `${project.name} — project-director` : 'project-director';
+  const projects = state.projects || [];
+  const nameEl = document.getElementById('chatProjectName');
+  const msgContainer = document.getElementById('chatMessages');
+
+  // Determine active chat project
+  if (activeProjectFilter !== 'all') {
+    _activeChatProject = activeProjectFilter;
+  } else if (!_activeChatProject && projects.length > 0) {
+    _activeChatProject = projects[0].id;
+  }
+
+  // Build project tabs if multiple projects
+  let tabsHtml = '';
+  if (projects.length > 1) {
+    tabsHtml = '<div style="display:flex;gap:4px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3);flex-wrap:wrap">';
+    projects.forEach(p => {
+      const isActive = _activeChatProject === p.id;
+      const style = isActive ? 'background:var(--accent-blue);color:white' : 'background:var(--bg-hover);color:var(--text-secondary)';
+      tabsHtml += `<button onclick="_activeChatProject='${p.id}';loadChatHistory()" style="${style};border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer">${escapeHtml(p.name)}</button>`;
+    });
+    tabsHtml += '</div>';
+  }
+
+  const project = projects.find(p => p.id === _activeChatProject);
+  const sessionStatus = project && project.sessionName ? `(${project.sessionName})` : '';
+  nameEl.textContent = project ? `${project.name} — project-director ${sessionStatus}` : 'project-director';
 
   try {
-    const res = await fetch('/api/chat/' + pid);
+    const res = await fetch('/api/chat/' + _activeChatProject);
     const messages = await res.json();
-    renderChatMessages(messages);
+    renderChatMessages(messages, tabsHtml);
   } catch (e) {
-    document.getElementById('chatMessages').innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">채팅 로드 실패</div>';
+    msgContainer.innerHTML = tabsHtml + '<div style="color:var(--text-muted);text-align:center;padding:16px">채팅 로드 실패</div>';
   }
 }
 
-function renderChatMessages(messages) {
+function renderChatMessages(messages, tabsHtml) {
   const container = document.getElementById('chatMessages');
+  const prefix = tabsHtml || '';
+
   if (!messages.length) {
-    container.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:32px;font-size:13px">팀장 에이전트에게 메시지를 보내세요</div>';
+    container.innerHTML = prefix + '<div style="color:var(--text-muted);text-align:center;padding:32px;font-size:13px">팀장 에이전트에게 메시지를 보내세요</div>';
     return;
   }
 
-  container.innerHTML = messages.map(m => {
+  container.innerHTML = prefix + messages.map(m => {
     const isUser = m.from === 'user';
     const align = isUser ? 'flex-end' : 'flex-start';
     const bg = isUser ? 'rgba(59,130,246,0.15)' : 'rgba(100,116,139,0.1)';
@@ -1726,7 +1753,7 @@ function renderChatMessages(messages) {
 async function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const msg = input.value.trim();
-  const pid = activeProjectFilter === 'all' ? (state.projects && state.projects[0] ? state.projects[0].id : '1') : activeProjectFilter;
+  const pid = _activeChatProject || (state.projects && state.projects[0] ? state.projects[0].id : '1');
 
   if (!msg && !_chatPendingFile) return;
 
