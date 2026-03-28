@@ -2,7 +2,7 @@
 let ws = null;
 let state = { tasks: [], agents: {}, phases: [], documents: [], stats: {}, phaseProgress: 0 };
 let activeRoleFilter = 'all';
-let activeProjectFilter = 'all';
+let activeProjectFilter = localStorage.getItem('jun_active_project') || 'all';
 
 // --- WebSocket ---
 function connect() {
@@ -53,7 +53,11 @@ function renderProjects() {
   // Update filter dropdown
   filterSelect.innerHTML = '<option value="all">All Projects</option>' +
     projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-  filterSelect.value = currentVal;
+  // Restore saved project selection
+  const savedProject = localStorage.getItem('jun_active_project') || 'all';
+  filterSelect.value = savedProject;
+  if (filterSelect.value !== savedProject) filterSelect.value = 'all';
+  activeProjectFilter = filterSelect.value;
 
   // Update task modal project dropdown
   if (taskProjectSelect) {
@@ -1099,38 +1103,102 @@ async function renderDocuments() {
     } catch (e) { /* fallback to event-based docs */ }
   }
 
-  // Fallback: event-based documents (All Projects view)
-  let docs = (state.documents || []).filter(d => d.file);
-  if (categoryFilter !== 'all') {
-    docs = docs.filter(d => d.category === categoryFilter);
-  }
-
-  if (!docs.length) {
+  // All Projects view — show tabs per project
+  const projects = (state.projects || []).filter(p => p.projectDir);
+  if (projects.length === 0) {
     const agents = state.agents || {};
     const running = Object.values(agents).filter(a => a.status === 'running');
     let statusMsg = running.length > 0
       ? `<div style="color:var(--accent-orange);text-align:center;padding:8px;font-size:12px;margin-top:8px"><span class="spinner" style="margin-right:4px"></span>${running.map(a=>a.name).join(', ')} 작업 중</div>`
       : '';
-    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">산출물 없음${statusMsg}</div>`;
+    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">프로젝트에 디렉토리가 연결되지 않았습니다${statusMsg}</div>`;
     return;
   }
 
-  let html = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">총 ${docs.length}개 산출물</div>`;
-  docs.forEach(d => {
-    const icon = formatIcons[d.format] || '📄';
-    const cat = d.category || 'document';
-    const catLabel = categoryLabels[cat] || cat;
-    const catColor = categoryColors[cat] || 'var(--text-muted)';
-    const fileName = d.file.split('/').pop();
-    html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
-      <span>${icon}</span>
-      <span style="flex:1">${escapeHtml(fileName)}</span>
-      <span style="color:var(--accent-green);font-size:9px">✅</span>
-      <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
-      <span style="color:var(--text-muted);font-size:10px">${getTimeAgo(d.createdAt)}</span>
-    </div>`;
+  // Tabs
+  if (!window._activeOutputTab) window._activeOutputTab = projects[0].id;
+  let tabsHtml = `<div style="display:flex;gap:4px;margin-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3);padding-bottom:8px;flex-wrap:wrap">`;
+  projects.forEach(p => {
+    const isActive = window._activeOutputTab === p.id;
+    const style = isActive
+      ? 'background:var(--accent-blue);color:white'
+      : 'background:var(--bg-hover);color:var(--text-secondary)';
+    tabsHtml += `<button onclick="window._activeOutputTab='${p.id}';renderDocuments()" style="${style};border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer">${escapeHtml(p.name)}</button>`;
   });
-  list.innerHTML = html;
+  tabsHtml += `</div>`;
+
+  // Load selected project's files
+  const selectedProject = projects.find(p => p.id === window._activeOutputTab) || projects[0];
+  try {
+    const res = await fetch('/api/projects/' + selectedProject.id + '/outputs');
+    const data = await res.json();
+
+    let files = data.files || [];
+    if (categoryFilter !== 'all') {
+      files = files.filter(f => f.category === categoryFilter);
+    }
+
+    const totalSize = files.reduce((s, f) => s + (f.size || 0), 0);
+    const sizeStr = totalSize > 1048576 ? (totalSize / 1048576).toFixed(1) + ' MB' : (totalSize / 1024).toFixed(0) + ' KB';
+    const fmtCounts = {};
+    files.forEach(f => { fmtCounts[f.format] = (fmtCounts[f.format] || 0) + 1; });
+    const fmtStats = Object.entries(fmtCounts).map(([f, c]) => `.${f}:${c}`).join(' | ');
+
+    let html = tabsHtml;
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">
+      <span style="font-size:11px;color:var(--text-muted)">${escapeHtml(selectedProject.name)}: ${files.length}개 파일 | ${sizeStr} | ${fmtStats}</span>
+      <div style="display:flex;gap:4px">
+        <button onclick="expandAllDirs()" style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer">Expand All</button>
+        <button onclick="collapseAllDirs()" style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer">Collapse All</button>
+      </div>
+    </div>`;
+
+    if (files.length === 0) {
+      html += `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">이 프로젝트에 산출물 없음</div>`;
+      list.innerHTML = html;
+      return;
+    }
+
+    const groups = data.groups || {};
+    let dirIdx2 = 0;
+    Object.keys(groups).sort().forEach(dir => {
+      let dirFiles = (groups[dir].files || []);
+      if (categoryFilter !== 'all') dirFiles = dirFiles.filter(f => f.category === categoryFilter);
+      if (dirFiles.length === 0) return;
+
+      const dirId = 'outdir-' + (dirIdx2++);
+      const isOpen = _outputDirState[dir] === true;
+      html += `<div style="margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 0" onclick="toggleOutputDir('${dirId}','${escapeHtml(dir)}')">
+          <span id="tog-${dirId}" class="dir-toggle" style="display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;background:var(--bg-hover);border-radius:3px;font-size:11px;color:var(--text-secondary);font-weight:700;flex-shrink:0">${isOpen ? '−' : '+'}</span>
+          <span style="font-size:12px;font-weight:500;color:var(--text-secondary)">📁 ${escapeHtml(dir)}</span>
+          <span style="font-size:10px;color:var(--text-muted)">(${dirFiles.length})</span>
+        </div>
+        <div id="${dirId}" class="output-dir-body" style="display:${isOpen ? 'block' : 'none'}">`;
+      dirFiles.forEach(f => {
+        const icon = formatIcons[f.format] || '📄';
+        const cat = f.category || 'document';
+        const catLabel = categoryLabels[cat] || cat;
+        const catColor = categoryColors[cat] || 'var(--text-muted)';
+        const fileName = f.path.split('/').pop();
+        const fileSize = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : f.size > 1024 ? (f.size/1024).toFixed(0)+'KB' : f.size+'B';
+        const fileUrl = '/files/' + encodeURI(f.path);
+        html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 24px;font-size:12px">
+          <span>${icon}</span>
+          <a href="${fileUrl}" target="_blank" style="flex:1;color:var(--text-primary);text-decoration:none" onclick="event.preventDefault();openFile('${fileUrl}','${escapeHtml(fileName)}')"
+             onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-primary)'">${escapeHtml(fileName)}</a>
+          <span style="color:var(--accent-green);font-size:9px">✅</span>
+          <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
+          <span style="color:var(--text-muted);font-size:10px">${fileSize}</span>
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
+
+    list.innerHTML = html;
+  } catch (e) {
+    list.innerHTML = tabsHtml + `<div style="color:var(--text-muted);text-align:center;padding:16px">로드 실패</div>`;
+  }
 }
 
 // --- Actions ---
@@ -1225,6 +1293,7 @@ async function createProject() {
 
 function onProjectFilterChange() {
   activeProjectFilter = document.getElementById('projectFilter').value;
+  localStorage.setItem('jun_active_project', activeProjectFilter);
   renderKanban();
   renderDocuments();
 }
