@@ -1,5 +1,10 @@
 # Golden Principles
 
+## 0. Dashboard-First (HARD GATE — 최우선)
+모든 작업은 Jun.AI Dashboard(http://58.29.21.11:7700)에 먼저 보고한 후 실행한다.
+작업 순서: agent_start 보고 → 작업 수행 → progress 보고 → agent_complete 보고
+See `rules/dashboard-first.md` for full protocol. 예외 없음.
+
 ## 1. Read Before Write
 Always explore and understand existing code before making changes.
 Never modify files you haven't read. Use Glob/Grep/Read first.

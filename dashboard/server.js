@@ -605,6 +605,18 @@ app.post('/api/sessions/start', (req, res) => {
 
     const claudeMd = `# ${projectName}
 
+## HARD GATE: Dashboard-First Rule (최우선 규칙)
+**모든 작업은 Jun.AI Dashboard에 먼저 보고한 후 실행한다. 예외 없음.**
+
+### 작업 순서 (절대 변경 금지)
+1. 대시보드에 agent_start 보고 → 2. 실제 작업 수행 → 3. 중간 progress 보고 (30%/50%/80%) → 4. agent_complete 보고 → 5. 산출물 document_created 보고
+
+### 금지 사항
+- ❌ 대시보드 보고 없이 작업 시작
+- ❌ 작업 완료 후 보고 빠뜨림
+- ❌ 산출물 생성 후 대시보드 미등록
+- ❌ 사용자 채팅 메시지 무시
+
 ## Jun.AI Dashboard 연동
 - Dashboard: http://58.29.21.11:7700
 - API Docs: http://58.29.21.11:7701
