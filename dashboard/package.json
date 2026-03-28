@@ -1,0 +1,14 @@
+{
+  "name": "pdlc-dashboard",
+  "version": "1.0.0",
+  "description": "TaskForce.AI — PDLC Agent Monitoring Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js --dev"
+  },
+  "dependencies": {
+    "express": "^4.18.0",
+    "ws": "^8.16.0"
+  }
+}

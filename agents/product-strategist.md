@@ -2,6 +2,8 @@
 name: product-strategist
 description: |
   Use this agent for product strategy, roadmap planning, competitive analysis, market research, and milestone definition.
+  PDLC Phase 2 lead agent — conducts market research, SWOT analysis, TAM/SAM/SOM,
+  competitive feature matrices, and generates market analysis reports via report-writer.
 
   <example>
   Context: User planning product roadmap

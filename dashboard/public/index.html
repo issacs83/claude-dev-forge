@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskForce.AI - PDLC Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <h1 class="logo">TaskForce<span class="logo-ai">.AI</span></h1>
+      <span class="live-badge" id="liveBadge">● Live</span>
+    </div>
+    <div class="header-right">
+      <span class="stat">Total: <b id="statTotal">0</b></span>
+      <span class="stat">Active: <b id="statActive">0</b></span>
+      <span class="stat">Done: <b id="statDone">0</b></span>
+      <span class="stat">Rate: <b id="statRate">0%</b></span>
+      <button class="btn-new-task" onclick="showNewTaskModal()">+ New Task</button>
+    </div>
+  </header>
+
+  <!-- Phase Progress Bar -->
+  <div class="phase-bar">
+    <div class="phase-bar-label">PDLC Progress</div>
+    <div class="phase-track" id="phaseTrack"></div>
+    <div class="phase-percent" id="phasePercent">0%</div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <div class="filter-left">
+      <label>Project:</label>
+      <select class="filter-select" id="projectFilter">
+        <option value="all">All Projects</option>
+      </select>
+    </div>
+    <div class="filter-right">
+      <label>Role:</label>
+      <div class="role-tabs" id="roleTabs">
+        <button class="role-tab active" data-role="all">All</button>
+        <button class="role-tab" data-role="management">management</button>
+        <button class="role-tab" data-role="research">research</button>
+        <button class="role-tab" data-role="ai-ml">ai-ml</button>
+        <button class="role-tab" data-role="document">document</button>
+        <button class="role-tab" data-role="test">test</button>
+        <button class="role-tab" data-role="dev">dev</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kanban Board -->
+  <div class="kanban-board" id="kanbanBoard">
+    <div class="kanban-column" data-status="todo">
+      <div class="column-header todo">
+        <span>To Do</span>
+        <span class="column-count" id="countTodo">0</span>
+      </div>
+      <div class="column-body" id="colTodo"></div>
+    </div>
+    <div class="kanban-column" data-status="claimed">
+      <div class="column-header claimed">
+        <span>Claimed</span>
+        <span class="column-count" id="countClaimed">0</span>
+      </div>
+      <div class="column-body" id="colClaimed"></div>
+    </div>
+    <div class="kanban-column" data-status="in_progress">
+      <div class="column-header in_progress">
+        <span>In Progress</span>
+        <span class="column-count" id="countInProgress">0</span>
+      </div>
+      <div class="column-body" id="colInProgress"></div>
+    </div>
+    <div class="kanban-column" data-status="review">
+      <div class="column-header review">
+        <span>Review</span>
+        <span class="column-count" id="countReview">0</span>
+      </div>
+      <div class="column-body" id="colReview"></div>
+    </div>
+    <div class="kanban-column" data-status="done">
+      <div class="column-header done">
+        <span>Done</span>
+        <span class="column-count" id="countDone">0</span>
+      </div>
+      <div class="column-body" id="colDone"></div>
+    </div>
+  </div>
+
+  <!-- Agent Monitor Panel (collapsible) -->
+  <div class="agent-panel" id="agentPanel">
+    <div class="panel-header" onclick="togglePanel('agentPanel')">
+      <span>Agent Monitor</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="panel-body" id="agentList"></div>
+  </div>
+
+  <!-- Document Output Panel -->
+  <div class="doc-panel" id="docPanel">
+    <div class="panel-header" onclick="togglePanel('docPanel')">
+      <span>Documents</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="panel-body" id="docList"></div>
+  </div>
+
+  <!-- New Task Modal -->
+  <div class="modal-overlay" id="newTaskModal" style="display:none">
+    <div class="modal">
+      <h3>New Task</h3>
+      <input id="newTaskTitle" placeholder="Task title" />
+      <select id="newTaskPriority">
+        <option value="low">Low</option>
+        <option value="medium" selected>Medium</option>
+        <option value="high">High</option>
+        <option value="critical">Critical</option>
+      </select>
+      <select id="newTaskRole">
+        <option value="management">management</option>
+        <option value="research">research</option>
+        <option value="ai-ml">ai-ml</option>
+        <option value="document">document</option>
+        <option value="test">test</option>
+        <option value="dev">dev</option>
+      </select>
+      <div class="modal-actions">
+        <button onclick="createTask()">Create</button>
+        <button onclick="hideNewTaskModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

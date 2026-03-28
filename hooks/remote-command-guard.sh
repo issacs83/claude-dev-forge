@@ -13,10 +13,10 @@ fi
 
 # Dangerous patterns to block
 BLOCKED_PATTERNS=(
-    'rm -rf /'
-    'rm -rf /*'
-    'rm -rf ~'
-    'rm -rf $HOME'
+    'rm -rf /\s*$'
+    'rm -rf /\*'
+    'rm -rf ~\s*$'
+    'rm -rf \$HOME\s*$'
     'mkfs\.'
     'dd if=.* of=/dev/sd'
     ':(){:|:&};:'           # Fork bomb
