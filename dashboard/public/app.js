@@ -205,13 +205,14 @@ function renderCard(task) {
   const progress = task.progress || 0;
   const isWorking = task.status === 'in_progress';
 
-  // Calculate elapsed and estimated remaining time
+  // Calculate elapsed time and use real agent progress
   let timeInfo = '';
   if (isWorking && task.createdAt) {
-    const elapsed = Math.floor((Date.now() - new Date(task.createdAt).getTime()) / 60000);
-    const estTotal = task.estimatedMinutes || 60;
-    const remaining = Math.max(0, estTotal - elapsed);
-    const pct = progress > 0 ? progress : Math.min(95, Math.floor((elapsed / estTotal) * 100));
+    const agents = state.agents || {};
+    const agentData = task.agent ? agents[task.agent] : null;
+    const elapsed = Math.floor((Date.now() - new Date(task.updatedAt || task.createdAt).getTime()) / 60000);
+    const pct = agentData && agentData.status === 'running' ? (agentData.progress || 0) : progress;
+    const remaining = pct > 0 ? Math.floor(elapsed * (100 - pct) / pct) : '--';
     timeInfo = `
       <div class="progress-section">
         <div class="progress-header">
