@@ -4,7 +4,7 @@ const DOCS_PORT = process.env.DOCS_PORT || 7701;
 const API_DOCS = {
   title: 'Jun.AI Dashboard API',
   version: '2.0.0',
-  baseUrl: 'http://localhost:7700',
+  baseUrl: 'http://58.29.21.11:7700',
   description: 'Jun.AI PDLC Dashboard REST API & WebSocket Reference',
   endpoints: [
     {
@@ -44,7 +44,7 @@ const API_DOCS = {
 }`,
           response: '{ project: {...}, tasks: [...], message: string }',
           example: `// 프로젝트 셋업 (lifecycle 시작 전 호출)
-curl -X POST http://localhost:7700/api/projects/setup \\
+curl -X POST http://58.29.21.11:7700/api/projects/setup \\
   -H 'Content-Type: application/json' \\
   -d '{
     "name": "스마트 카메라 v2.0",
@@ -170,7 +170,7 @@ curl -X POST http://localhost:7700/api/projects/setup \\
 }`,
           response: '{ ok: true }',
           example: `// 확인 요청 알림
-curl -X POST http://localhost:7700/api/notify \\
+curl -X POST http://58.29.21.11:7700/api/notify \\
   -H 'Content-Type: application/json' \\
   -d '{
     "confirm": true,
@@ -222,7 +222,7 @@ curl -X POST http://localhost:7700/api/notify \\
     }
   ],
   websocket: {
-    url: 'ws://localhost:7700',
+    url: 'ws://58.29.21.11:7700',
     desc: 'WebSocket 실시간 연결 — 서버→클라이언트 메시지',
     messages: [
       { type: 'state_update', desc: '전체 상태 변경 시 자동 푸시', data: '{ stats, tasks, agents, phases, ... }' },
@@ -239,31 +239,31 @@ curl -X POST http://localhost:7700/api/notify \\
     examples: [
       {
         title: '1. 에이전트 시작 보고',
-        code: `curl -X POST http://localhost:7700/api/events \\
+        code: `curl -X POST http://58.29.21.11:7700/api/events \\
   -H 'Content-Type: application/json' \\
   -d '{"type":"agent_start","agent":"web-developer","phase":8,"task":"로그인 기능 구현"}'`
       },
       {
         title: '2. 진행률 업데이트',
-        code: `curl -X POST http://localhost:7700/api/events \\
+        code: `curl -X POST http://58.29.21.11:7700/api/events \\
   -H 'Content-Type: application/json' \\
   -d '{"type":"agent_progress","agent":"web-developer","progress":75,"message":"API 연동 중..."}'`
       },
       {
         title: '3. 에이전트 완료 + 다음 단계 확인 요청',
-        code: `curl -X POST http://localhost:7700/api/notify \\
+        code: `curl -X POST http://58.29.21.11:7700/api/notify \\
   -H 'Content-Type: application/json' \\
   -d '{"confirm":true,"title":"web-developer 완료","message":"로그인 구현 완료. e2e-tester로 테스트 진행하시겠습니까?","agent":"web-developer","task":"로그인 구현","next_agent":"e2e-tester","next_task":"E2E 테스트"}'`
       },
       {
         title: '4. 문서 생성 보고',
-        code: `curl -X POST http://localhost:7700/api/events \\
+        code: `curl -X POST http://58.29.21.11:7700/api/events \\
   -H 'Content-Type: application/json' \\
   -d '{"type":"document_created","file":"output/V&V_보고서.docx","format":"docx","phase":10}'`
       },
       {
         title: '5. 태스크 생성',
-        code: `curl -X POST http://localhost:7700/api/tasks \\
+        code: `curl -X POST http://58.29.21.11:7700/api/tasks \\
   -H 'Content-Type: application/json' \\
   -d '{"title":"E2E 테스트 작성","project":"1","role":"test","priority":"high","status":"todo"}'`
       }
@@ -381,7 +381,8 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(DOCS_PORT, () => {
+server.listen(DOCS_PORT, '0.0.0.0', () => {
   console.log(`\n  Jun.AI API Docs`);
-  console.log(`  ● http://localhost:${DOCS_PORT}\n`);
+  const host = process.env.DASHBOARD_HOST || '58.29.21.11';
+  console.log(`  ● http://${host}:${DOCS_PORT}\n`);
 });

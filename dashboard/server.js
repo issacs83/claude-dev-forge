@@ -266,7 +266,8 @@ wss.on('connection', (ws) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  Jun.AI Dashboard`);
-  console.log(`  ● Live on http://localhost:${PORT}\n`);
+  const host = process.env.DASHBOARD_HOST || '58.29.21.11';
+  console.log(`  ● Live on http://${host}:${PORT}\n`);
 });
