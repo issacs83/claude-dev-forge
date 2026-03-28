@@ -132,7 +132,7 @@ app.post('/api/projects/setup', (req, res) => {
   if (!name) return res.status(400).json({ error: 'Project name required' });
 
   // 1. Create project
-  const project = state.createProject({ name, description: description || '', status: 'active' });
+  const project = state.createProject({ name, description: description || '', domain: domain || 'general', status: 'active' });
 
   // 2. Define PDLC phases with default agents and objectives
   const pdlcPhases = [
@@ -301,53 +301,161 @@ app.get('/api/sessions', (req, res) => {
   }
 });
 
-// Start new Claude Code session in tmux
+// Start new Claude Code session in tmux with project directory
+const SESSIONS_ROOT = '/home/issacs/sessions';
+
 app.post('/api/sessions/start', (req, res) => {
-  const { projectName, projectPath, projectId } = req.body;
+  const { projectName, projectPath, projectId, domain } = req.body;
   if (!projectName) return res.status(400).json({ error: 'projectName required' });
 
-  const safeName = 'jun-' + projectName.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 20);
-  const workDir = projectPath || `/home/issacs/work`;
+  const safeName = 'jun-' + projectName.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
+  const projectDir = projectPath || path.join(SESSIONS_ROOT, safeName);
 
   try {
-    // Check if session with this name already exists
+    // Check if session already exists
     try {
       const existing = execSync(`tmux list-windows -t work -F "#{window_name}" 2>/dev/null`, { encoding: 'utf-8' });
       if (existing.includes(safeName)) {
-        // Focus existing window
         execSync(`tmux select-window -t work:${safeName} 2>/dev/null`);
-        return res.json({ ok: true, action: 'focused', window: safeName, message: `기존 세션 "${safeName}" 으로 전환됨` });
+        return res.json({ ok: true, action: 'focused', window: safeName, projectDir, message: `기존 세션 "${safeName}" 으로 전환됨` });
       }
     } catch (e) { /* no existing */ }
 
-    // Create new tmux window with claude
-    const cmd = `tmux new-window -t work -n "${safeName}" "cd ${workDir} && claude" 2>/dev/null`;
-    exec(cmd);
-
-    // Send dashboard integration protocol to Claude session
-    if (projectId || projectName) {
-      setTimeout(() => {
-        try {
-          const initMsg = [
-            `[Jun.AI Dashboard 연동] 프로젝트: "${projectName}"`,
-            `대시보드 URL: http://58.29.21.11:7700`,
-            `이 세션에서 작업할 때 반드시 아래 API로 진행 상황을 보고하세요:`,
-            ``,
-            `작업 시작: curl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_start","agent":"에이전트명","task":"작업내용"}'`,
-            `진행률: curl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_progress","agent":"에이전트명","progress":50,"message":"진행내용"}'`,
-            `완료: curl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_complete","agent":"에이전트명","task":"작업내용"}'`,
-            `응답: curl -s -X POST http://58.29.21.11:7700/api/tasks/태스크ID/comments -H 'Content-Type: application/json' -d '{"from":"에이전트명","message":"응답내용"}'`,
-            ``,
-            `사용자가 대시보드 채팅으로 메시지를 보내면 이 세션으로 전달됩니다. 응답은 위 comments API로 보내주세요.`
-          ].join('\\n');
-          execSync(`tmux send-keys -t work:${safeName} "${initMsg}" Enter 2>/dev/null`);
-        } catch (e) { /* ignore */ }
-      }, 4000);
+    // 1. Create project directory structure
+    const outputDirs = [
+      'phase-00-research', 'phase-01-voc', 'phase-02-market',
+      'phase-03-planning', 'phase-04-requirements', 'phase-05-architecture',
+      'phase-06-design', 'phase-07-detailed-design', 'phase-08-implementation',
+      'phase-09-testing/screenshots', 'phase-10-verification', 'phase-11-evaluation',
+      'certification', 'media/screenshots', 'media/figures', 'media/diagrams'
+    ];
+    outputDirs.forEach(d => {
+      const dir = path.join(projectDir, 'output', d);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    });
+    if (!fs.existsSync(path.join(projectDir, 'src'))) {
+      fs.mkdirSync(path.join(projectDir, 'src'), { recursive: true });
     }
 
-    res.json({ ok: true, action: 'created', window: safeName, message: `새 세션 "${safeName}" 시작됨` });
+    // 2. Create .claude/CLAUDE.md with dashboard protocol
+    const claudeDir = path.join(projectDir, '.claude');
+    if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
+
+    const claudeMd = `# ${projectName}
+
+## Jun.AI Dashboard 연동
+- Dashboard: http://58.29.21.11:7700
+- API Docs: http://58.29.21.11:7701
+- Project ID: ${projectId || 'N/A'}
+
+## 진행 보고 API
+작업 중 반드시 아래 API로 대시보드에 보고하세요:
+
+\`\`\`bash
+# 작업 시작
+curl -s -X POST http://58.29.21.11:7700/api/events \\
+  -H 'Content-Type: application/json' \\
+  -d '{"type":"agent_start","agent":"에이전트명","task":"작업내용"}'
+
+# 진행률 (0-100)
+curl -s -X POST http://58.29.21.11:7700/api/events \\
+  -H 'Content-Type: application/json' \\
+  -d '{"type":"agent_progress","agent":"에이전트명","progress":50,"message":"진행내용"}'
+
+# 완료
+curl -s -X POST http://58.29.21.11:7700/api/events \\
+  -H 'Content-Type: application/json' \\
+  -d '{"type":"agent_complete","agent":"에이전트명","task":"작업내용"}'
+
+# 사용자에게 응답
+curl -s -X POST http://58.29.21.11:7700/api/tasks/태스크ID/comments \\
+  -H 'Content-Type: application/json' \\
+  -d '{"from":"에이전트명","message":"응답내용"}'
+
+# 산출물 보고
+curl -s -X POST http://58.29.21.11:7700/api/events \\
+  -H 'Content-Type: application/json' \\
+  -d '{"type":"document_created","file":"output/phase-XX/파일명.docx","format":"docx","phase":0}'
+\`\`\`
+
+## 산출물 디렉토리
+\`\`\`
+output/
+├── phase-00-research/      ← 선행기술 조사서, 특허맵
+├── phase-01-voc/            ← VOC 분석 보고서, 페르소나
+├── phase-02-market/         ← 시장분석서, 경쟁비교표
+├── phase-03-planning/       ← PRD, UX 사양서, GTM
+├── phase-04-requirements/   ← SRS, HRS, ICD
+├── phase-05-architecture/   ← 아키텍처 문서, WBS
+├── phase-06-design/         ← 설계 문서, API 스펙, BOM
+├── phase-07-detailed-design/← 상세 설계서, DB 스키마
+├── phase-08-implementation/ ← 코드 리뷰 기록
+├── phase-09-testing/        ← 테스트 보고서
+│   └── screenshots/         ← E2E 스크린샷
+├── phase-10-verification/   ← DHF, V&V 보고서
+├── phase-11-evaluation/     ← 평가 보고서
+├── certification/           ← 인증 문서 (FDA, CE, KC)
+└── media/                   ← 이미지, 다이어그램
+\`\`\`
+`;
+    fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), claudeMd, 'utf-8');
+
+    // 3. Create README.md
+    const readme = `# ${projectName}\n\nCreated by Jun.AI Dashboard\nDomain: ${domain || 'general'}\nDate: ${new Date().toISOString()}\n`;
+    const readmePath = path.join(projectDir, 'README.md');
+    if (!fs.existsSync(readmePath)) {
+      fs.writeFileSync(readmePath, readme, 'utf-8');
+    }
+
+    // 4. Initialize git
+    try {
+      if (!fs.existsSync(path.join(projectDir, '.git'))) {
+        execSync(`cd ${projectDir} && git init && git add -A && git commit -m "init: ${projectName} project setup by Jun.AI" 2>/dev/null`, { encoding: 'utf-8' });
+      }
+    } catch (e) { /* ignore */ }
+
+    // 5. Create tmux window
+    exec(`tmux new-window -t work -n "${safeName}" "cd ${projectDir} && claude" 2>/dev/null`);
+
+    // 6. Update project record with directory path
+    if (projectId) {
+      state.updateProject(projectId, { projectDir, sessionName: safeName });
+    }
+
+    // 7. Save state
+    state.save(DATA_FILE);
+
+    res.json({
+      ok: true,
+      action: 'created',
+      window: safeName,
+      projectDir,
+      structure: {
+        root: projectDir,
+        output: path.join(projectDir, 'output'),
+        src: path.join(projectDir, 'src'),
+        claude: path.join(projectDir, '.claude')
+      },
+      message: `프로젝트 "${projectName}" 세션 생성됨 — ${projectDir}`
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Get project directory listing
+app.get('/api/sessions/:name/files', (req, res) => {
+  const projectDir = path.join(SESSIONS_ROOT, req.params.name);
+  try {
+    const files = execSync(`find ${projectDir}/output -type f 2>/dev/null | sort`, { encoding: 'utf-8' });
+    const list = files.trim().split('\n').filter(Boolean).map(f => {
+      const rel = f.replace(projectDir + '/', '');
+      const ext = path.extname(f).replace('.', '');
+      return { path: rel, fullPath: f, format: ext };
+    });
+    res.json({ projectDir, files: list, count: list.length });
+  } catch (e) {
+    res.json({ projectDir, files: [], count: 0 });
   }
 });
 
