@@ -145,10 +145,11 @@ body {
 /* Kanban Board */
 .kanban-board {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(6, minmax(180px, 1fr));
   gap: 12px;
   padding: 16px 24px;
   min-height: 400px;
+  overflow-x: auto;
 }
 .kanban-column {
   background: var(--bg-secondary);
@@ -156,6 +157,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 300px;
+  min-width: 180px;
 }
 .column-header {
   display: flex;

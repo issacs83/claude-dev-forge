@@ -130,6 +130,18 @@ process.on('SIGTERM', () => { state.save(DATA_FILE); process.exit(0); });
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
+// Serve project output files (for download/view)
+app.use('/files', express.static('/home/issacs/sessions'));
+
+// Clean orphan documents on startup
+setTimeout(() => {
+  const removed = state.cleanDocuments();
+  if (removed > 0) {
+    console.log(`  ✓ Cleaned ${removed} orphan documents`);
+    state.save(DATA_FILE);
+  }
+}, 1000);
+
 // --- REST API ---
 
 // Get full state

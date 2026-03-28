@@ -313,7 +313,14 @@ class StateManager {
 
   getAgents() { return this.agents; }
   getTimeline() { return this.timeline; }
-  getDocuments() { return this.documents; }
+  getDocuments() { return this.documents.filter(d => d.file); }
+
+  // Remove orphan documents (no file field)
+  cleanDocuments() {
+    const before = this.documents.length;
+    this.documents = this.documents.filter(d => d.file);
+    return before - this.documents.length;
+  }
   getPhases() { return this.phases; }
 
   // --- Document Category Inference ---

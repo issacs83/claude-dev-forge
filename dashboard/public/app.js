@@ -272,13 +272,37 @@ let _isDragging = false;
     setTimeout(() => { _isDragging = false; }, 100);
   });
 
-  // Dragover
+  // Dragover + auto-scroll when near edges
   board.addEventListener('dragover', (e) => {
     const col = e.target.closest('.kanban-column');
-    if (!col) return;
+    if (!col) {
+      // Auto-scroll page when dragging near top/bottom edge
+      const scrollZone = 80;
+      if (e.clientY < scrollZone) {
+        window.scrollBy(0, -10);
+      } else if (e.clientY > window.innerHeight - scrollZone) {
+        window.scrollBy(0, 10);
+      }
+      // Auto-scroll horizontally near left/right edge
+      if (e.clientX < scrollZone) {
+        board.scrollLeft -= 10;
+      } else if (e.clientX > window.innerWidth - scrollZone) {
+        board.scrollLeft += 10;
+      }
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     col.classList.add('drop-target');
+
+    // Auto-scroll vertically
+    const scrollZone = 80;
+    if (e.clientY < scrollZone) {
+      window.scrollBy(0, -10);
+    } else if (e.clientY > window.innerHeight - scrollZone) {
+      window.scrollBy(0, 10);
+    }
   });
 
   // Dragleave
@@ -991,9 +1015,10 @@ function renderDocuments() {
       const catLabel = categoryLabels[cat] || cat;
       const catColor = categoryColors[cat] || 'var(--text-muted)';
       const fileName = d.file ? d.file.split('/').pop() : 'unknown';
+      const fileUrl = d.file ? '/files/' + encodeURI(d.file) : '#';
       html += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0 3px 16px;font-size:12px">
         <span>${icon}</span>
-        <span style="flex:1">${escapeHtml(fileName)}</span>
+        <a href="${fileUrl}" target="_blank" style="flex:1;color:var(--text-primary);text-decoration:none" onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-primary)'">${escapeHtml(fileName)}</a>
         <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
         <span style="color:var(--text-muted);font-size:10px">${getTimeAgo(d.createdAt)}</span>
       </div>`;
