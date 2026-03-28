@@ -134,19 +134,21 @@ app.use(express.json());
 // Try multiple paths: sessions dir, project dirs, absolute path
 app.get('/files/*', (req, res) => {
   const filePath = decodeURIComponent(req.params[0]);
-  const tryPaths = [
-    path.join('/home/issacs/sessions', filePath),
-    path.join('/home/issacs/work', filePath),
-    filePath.startsWith('/') ? filePath : path.join('/home/issacs', filePath)
-  ];
+  const tryPaths = [];
 
-  // Also try inside each project dir
+  // Try inside each project dir first
   const projects = state.getProjects();
   projects.forEach(p => {
     if (p.projectDir) {
       tryPaths.push(path.join(p.projectDir, filePath));
     }
   });
+
+  tryPaths.push(
+    path.join('/home/issacs/sessions', filePath),
+    path.join('/home/issacs/work', filePath),
+    filePath.startsWith('/') ? filePath : path.join('/home/issacs', filePath)
+  );
 
   for (const p of tryPaths) {
     if (fs.existsSync(p)) {
@@ -185,6 +187,67 @@ app.get('/api/agents', (req, res) => {
 // Get timeline
 app.get('/api/timeline', (req, res) => {
   res.json(state.getTimeline());
+});
+
+// Scan actual project output files from disk
+app.get('/api/projects/:id/outputs', (req, res) => {
+  const project = state.getProjects().find(p => p.id === req.params.id);
+  if (!project || !project.projectDir) {
+    return res.json({ files: [], message: 'projectDir not set' });
+  }
+
+  const projectDir = project.projectDir;
+  if (!fs.existsSync(projectDir)) {
+    return res.json({ files: [], message: 'Directory not found' });
+  }
+
+  try {
+    // Scan all files (exclude .git, node_modules, __pycache__)
+    const output = execSync(
+      `find "${projectDir}" -type f \\( -name "*.py" -o -name "*.dart" -o -name "*.js" -o -name "*.ts" -o -name "*.docx" -o -name "*.xlsx" -o -name "*.pptx" -o -name "*.hwpx" -o -name "*.pdf" -o -name "*.png" -o -name "*.jpg" -o -name "*.svg" -o -name "*.h5" -o -name "*.md" -o -name "*.yaml" -o -name "*.json" \\) ! -path "*/.git/*" ! -path "*/node_modules/*" ! -path "*/__pycache__/*" ! -path "*/.dart_tool/*" ! -path "*/.pub-cache/*" 2>/dev/null | sort`,
+      { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+    );
+
+    const files = output.trim().split('\n').filter(Boolean).map(f => {
+      const rel = f.replace(projectDir + '/', '');
+      const ext = path.extname(f).replace('.', '');
+      const stat = fs.statSync(f);
+      const category = state._inferCategory(ext, rel);
+      return {
+        path: rel,
+        fullPath: f,
+        format: ext,
+        size: stat.size,
+        modified: stat.mtime.toISOString(),
+        category,
+        status: 'exists'
+      };
+    });
+
+    // Group by directory
+    const groups = {};
+    files.forEach(f => {
+      const dir = f.path.split('/').slice(0, -1).join('/') || 'root';
+      if (!groups[dir]) groups[dir] = { files: [], totalSize: 0 };
+      groups[dir].files.push(f);
+      groups[dir].totalSize += f.size;
+    });
+
+    // Format stats
+    const formatCounts = {};
+    files.forEach(f => { formatCounts[f.format] = (formatCounts[f.format] || 0) + 1; });
+
+    res.json({
+      projectDir,
+      totalFiles: files.length,
+      totalSize: files.reduce((s, f) => s + f.size, 0),
+      formatCounts,
+      groups,
+      files
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Get documents (with project/category/phase filter, verify file exists)

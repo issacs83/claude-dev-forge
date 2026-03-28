@@ -998,45 +998,12 @@ function renderAgents() {
   }).join('');
 }
 
-function renderDocuments() {
+async function renderDocuments() {
   const list = document.getElementById('docList');
-  let docs = (state.documents || []).filter(d => d.file);
-
-  // Project filter — match active project filter
-  if (activeProjectFilter !== 'all') {
-    docs = docs.filter(d => d.project === activeProjectFilter);
-  }
-
-  // Category filter
   const filterEl = document.getElementById('outputCategoryFilter');
   const categoryFilter = filterEl ? filterEl.value : 'all';
-  if (categoryFilter !== 'all') {
-    docs = docs.filter(d => d.category === categoryFilter);
-  }
 
-  if (!docs.length) {
-    // Check if any agents are running (producing output)
-    const agents = state.agents || {};
-    const runningAgents = Object.values(agents).filter(a => a.status === 'running');
-    let statusMsg = '';
-    if (runningAgents.length > 0) {
-      const names = runningAgents.map(a => a.name).join(', ');
-      statusMsg = `<div style="color:var(--accent-orange);text-align:center;padding:8px;font-size:12px;margin-top:8px">
-        <span class="spinner" style="margin-right:4px"></span>
-        ${names} 에이전트가 작업 중 — 완료 시 산출물이 여기에 표시됩니다
-      </div>`;
-    }
-
-    const filterMsg = activeProjectFilter !== 'all'
-      ? '선택된 프로젝트에 산출물 없음'
-      : categoryFilter !== 'all'
-        ? `"${categoryFilter}" 카테고리 산출물 없음`
-        : '산출물 없음';
-    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">${filterMsg}${statusMsg}</div>`;
-    return;
-  }
-
-  const formatIcons = { docx: '📄', pptx: '📊', hwpx: '📝', xlsx: '📈', pdf: '📋', png: '🖼', jpg: '🖼', svg: '🖼' };
+  const formatIcons = { py: '🐍', dart: '🎯', js: '📜', ts: '📜', docx: '📄', pptx: '📊', hwpx: '📝', xlsx: '📈', pdf: '📋', png: '🖼', jpg: '🖼', svg: '🖼', h5: '🧠', md: '📝', yaml: '⚙', json: '⚙' };
   const categoryLabels = {
     analysis: '분석', design: '설계', certification: '인증', test: '테스트',
     manual: '매뉴얼', presentation: '발표', data: '데이터', official: '공문서',
@@ -1048,47 +1015,105 @@ function renderDocuments() {
     data: 'var(--accent-gold)', official: 'var(--accent-pink)', media: 'var(--text-muted)', document: 'var(--text-secondary)'
   };
 
-  // Group by directory (phase)
-  const groups = {};
+  // If specific project selected → scan actual files
+  if (activeProjectFilter !== 'all') {
+    try {
+      const res = await fetch('/api/projects/' + activeProjectFilter + '/outputs');
+      const data = await res.json();
+
+      if (!data.files || data.files.length === 0) {
+        // Check running agents
+        const agents = state.agents || {};
+        const running = Object.values(agents).filter(a => a.status === 'running');
+        let statusMsg = running.length > 0
+          ? `<div style="color:var(--accent-orange);text-align:center;padding:8px;font-size:12px;margin-top:8px"><span class="spinner" style="margin-right:4px"></span>${running.map(a=>a.name).join(', ')} 작업 중</div>`
+          : '';
+        list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">산출물 없음${statusMsg}</div>`;
+        return;
+      }
+
+      let files = data.files;
+      if (categoryFilter !== 'all') {
+        files = files.filter(f => f.category === categoryFilter);
+      }
+
+      // Stats
+      const totalSize = files.reduce((s, f) => s + (f.size || 0), 0);
+      const sizeStr = totalSize > 1048576 ? (totalSize / 1048576).toFixed(1) + ' MB' : (totalSize / 1024).toFixed(0) + ' KB';
+      const fmtStats = Object.entries(data.formatCounts || {}).map(([f, c]) => `.${f}:${c}`).join(' | ');
+
+      let html = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">총 ${data.totalFiles}개 파일 | ${sizeStr} | ${fmtStats}</div>`;
+
+      // Group by directory
+      const groups = data.groups || {};
+      Object.keys(groups).sort().forEach(dir => {
+        const g = groups[dir];
+        let dirFiles = g.files || [];
+        if (categoryFilter !== 'all') {
+          dirFiles = dirFiles.filter(f => f.category === categoryFilter);
+        }
+        if (dirFiles.length === 0) return;
+
+        html += `<div style="margin-bottom:8px">`;
+        html += `<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">📁 ${escapeHtml(dir)} (${dirFiles.length})</div>`;
+        html += `<div>`;
+        dirFiles.forEach(f => {
+          const icon = formatIcons[f.format] || '📄';
+          const cat = f.category || 'document';
+          const catLabel = categoryLabels[cat] || cat;
+          const catColor = categoryColors[cat] || 'var(--text-muted)';
+          const fileName = f.path.split('/').pop();
+          const fileSize = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : f.size > 1024 ? (f.size/1024).toFixed(0)+'KB' : f.size+'B';
+          const fileUrl = '/files/' + encodeURI(f.path);
+          html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 16px;font-size:12px">
+            <span>${icon}</span>
+            <a href="${fileUrl}" target="_blank" style="flex:1;color:var(--text-primary);text-decoration:none" onclick="event.preventDefault();openFile('${fileUrl}','${escapeHtml(fileName)}')"
+               onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-primary)'">${escapeHtml(fileName)}</a>
+            <span style="color:var(--accent-green);font-size:9px">✅</span>
+            <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
+            <span style="color:var(--text-muted);font-size:10px">${fileSize}</span>
+          </div>`;
+        });
+        html += `</div></div>`;
+      });
+
+      list.innerHTML = html;
+      return;
+
+    } catch (e) { /* fallback to event-based docs */ }
+  }
+
+  // Fallback: event-based documents (All Projects view)
+  let docs = (state.documents || []).filter(d => d.file);
+  if (categoryFilter !== 'all') {
+    docs = docs.filter(d => d.category === categoryFilter);
+  }
+
+  if (!docs.length) {
+    const agents = state.agents || {};
+    const running = Object.values(agents).filter(a => a.status === 'running');
+    let statusMsg = running.length > 0
+      ? `<div style="color:var(--accent-orange);text-align:center;padding:8px;font-size:12px;margin-top:8px"><span class="spinner" style="margin-right:4px"></span>${running.map(a=>a.name).join(', ')} 작업 중</div>`
+      : '';
+    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">산출물 없음${statusMsg}</div>`;
+    return;
+  }
+
+  let html = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">총 ${docs.length}개 산출물</div>`;
   docs.forEach(d => {
-    const dir = d.file ? d.file.split('/').slice(0, -1).join('/') || 'root' : 'root';
-    if (!groups[dir]) groups[dir] = [];
-    groups[dir].push(d);
+    const icon = formatIcons[d.format] || '📄';
+    const cat = d.category || 'document';
+    const catLabel = categoryLabels[cat] || cat;
+    const catColor = categoryColors[cat] || 'var(--text-muted)';
+    const fileName = d.file.split('/').pop();
+    html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
+      <span>${icon}</span>
+      <span style="flex:1">${escapeHtml(fileName)}</span>
+      <span style="color:var(--accent-green);font-size:9px">✅</span>
+      <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
+      <span style="color:var(--text-muted);font-size:10px">${getTimeAgo(d.createdAt)}</span>
+    </div>`;
   });
-
-  let html = '';
-
-  // Stats bar
-  const totalCount = docs.length;
-  const formatCounts = {};
-  docs.forEach(d => { formatCounts[d.format] = (formatCounts[d.format] || 0) + 1; });
-  const formatStats = Object.entries(formatCounts).map(([f, c]) => `.${f}: ${c}`).join(' | ');
-  html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">총 ${totalCount}개 산출물 | ${formatStats}</div>`;
-
-  // Grouped list
-  Object.keys(groups).sort().forEach(dir => {
-    html += `<div style="margin-bottom:8px">`;
-    html += `<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">📁 ${escapeHtml(dir)} (${groups[dir].length})</div>`;
-    groups[dir].forEach(d => {
-      const icon = formatIcons[d.format] || '📄';
-      const cat = d.category || 'document';
-      const catLabel = categoryLabels[cat] || cat;
-      const catColor = categoryColors[cat] || 'var(--text-muted)';
-      const fileName = d.file ? d.file.split('/').pop() : 'unknown';
-      const fileUrl = d.file ? '/files/' + encodeURI(d.file) : '#';
-      html += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0 3px 16px;font-size:12px">
-        <span>${icon}</span>
-        <a href="${fileUrl}" target="_blank" style="flex:1;color:var(--text-primary);text-decoration:none;cursor:pointer"
-           onmouseover="this.style.color='var(--accent-blue)'"
-           onmouseout="this.style.color='var(--text-primary)'"
-           onclick="event.preventDefault();openFile('${fileUrl}','${escapeHtml(fileName)}')">${escapeHtml(fileName)}</a>
-        <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
-        <span style="color:var(--text-muted);font-size:10px">${getTimeAgo(d.createdAt)}</span>
-      </div>`;
-    });
-    html += `</div>`;
-  });
-
   list.innerHTML = html;
 }
 
