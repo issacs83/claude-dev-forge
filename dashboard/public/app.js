@@ -2515,10 +2515,13 @@ function startChatBlink() {
   if (!btn || _chatBlinkInterval) return;
   _chatUnreadCount++;
   btn.setAttribute('data-unread', _chatUnreadCount);
+  let _blinkOn = false;
   _chatBlinkInterval = setInterval(() => {
-    btn.style.transform = btn.style.transform === 'scale(1.2)' ? 'scale(1)' : 'scale(1.2)';
-    btn.style.background = btn.style.background === 'var(--accent-red, #e74c3c)' ? 'var(--accent-blue)' : 'var(--accent-red, #e74c3c)';
-  }, 500);
+    _blinkOn = !_blinkOn;
+    btn.style.transform = _blinkOn ? 'scale(1.15)' : 'scale(1)';
+    btn.style.background = _blinkOn ? '#e74c3c' : '#3b82f6';
+    btn.textContent = _blinkOn ? '🔔' : '💬';
+  }, 600);
 }
 
 function stopChatBlink() {

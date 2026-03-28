@@ -292,7 +292,7 @@
   <!-- Project Chat Widget (우측 하단) -->
   <div id="chatWidget" style="position:fixed;bottom:16px;right:16px;z-index:500">
     <!-- Toggle button -->
-    <button id="chatToggle" onclick="toggleChat()" style="width:52px;height:52px;border-radius:50%;background:var(--accent-blue);color:white;border:none;cursor:pointer;font-size:22px;box-shadow:0 4px 16px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center">💬</button>
+    <button id="chatToggle" onclick="toggleChat()" style="width:52px;height:52px;border-radius:50%;background:var(--accent-blue);color:white;border:none;cursor:pointer;font-size:22px;box-shadow:0 4px 16px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;overflow:visible;will-change:transform">💬</button>
 
     <!-- Chat panel -->
     <div id="chatPanel" style="display:none;position:absolute;bottom:60px;right:0;width:380px;max-height:500px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);overflow:hidden;flex-direction:column">

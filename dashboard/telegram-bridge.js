@@ -334,18 +334,33 @@ bot.on('photo', async (msg) => {
 
   try {
     const photo = msg.photo[msg.photo.length - 1];
+
+    // Get file path via direct HTTP (avoid bot.getFileLink which throws AggregateError)
+    const https = require('https');
+    const getJSON = (url) => new Promise((resolve, reject) => {
+      const req = https.get(url, { family: 4, timeout: 10000 }, (res) => {
+        let body = '';
+        res.on('data', c => body += c);
+        res.on('end', () => { try { resolve(JSON.parse(body)); } catch(e) { reject(e); } });
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('API timeout')); });
+    });
+
     let fileLink;
     try {
-      fileLink = await bot.getFileLink(photo.file_id);
+      const fileInfo = await getJSON(`https://api.telegram.org/bot${TOKEN}/getFile?file_id=${photo.file_id}`);
+      if (!fileInfo.ok) throw new Error('getFile failed');
+      fileLink = `https://api.telegram.org/file/bot${TOKEN}/${fileInfo.result.file_path}`;
     } catch (e) {
-      console.log(`  [PHOTO ERROR] getFileLink failed: ${e.message}`);
+      console.log(`  [PHOTO ERROR] getFile failed: ${e.message}`);
       return bot.sendMessage(msg.chat.id, '❌ 텔레그램 파일 서버 연결 실패. 잠시 후 다시 시도해주세요.');
     }
 
     // Download with timeout and IPv4 forced
     const getFile = (url) => new Promise((resolve, reject) => {
-      const mod = url.startsWith('https') ? require('https') : require('http');
-      const req = mod.get(url, { family: 4, timeout: 15000 }, (res) => {
+      const req = https.get(url, { family: 4, timeout: 15000 }, (res) => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', () => resolve(Buffer.concat(chunks)));

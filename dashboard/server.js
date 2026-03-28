@@ -224,6 +224,29 @@ setInterval(() => {
     }
   });
 
+  // --- Claude Session Stuck Detection ---
+  // Auto-answer prompts that block Claude sessions
+  state.getProjects().forEach(project => {
+    if (!project.sessionName || project.status !== 'active') return;
+    try {
+      const pane = execSync(`tmux capture-pane -t "${project.sessionName}" -p -S -5 2>/dev/null`, { encoding: 'utf-8' });
+      // Detect stuck prompts
+      const stuckPatterns = [
+        /Do you want to make this edit/,
+        /❯ 1\. Yes/,
+        /Enter to confirm/,
+        /\[Y\/n\]/i,
+        /Press Enter/i
+      ];
+      const isStuck = stuckPatterns.some(p => p.test(pane));
+      const isIdle = pane.includes('❯') && !isStuck;
+      if (isStuck) {
+        exec(`tmux send-keys -t "${project.sessionName}" Enter`);
+        console.log(`  [AUTO] ${project.sessionName}: auto-approved stuck prompt`);
+      }
+    } catch (e) { /* session might not exist */ }
+  });
+
 }, 30000); // Check every 30 seconds
 
 // Pending message queue — retry when Claude session becomes idle
@@ -1556,7 +1579,7 @@ server.listen(PORT, '0.0.0.0', () => {
       // Ensure log dir exists
       try { fs.mkdirSync(path.dirname(BRIDGE_LOG), { recursive: true }); } catch(e) {}
 
-      const bridge = exec(`nohup node --unhandled-rejections=warn "${BRIDGE_SCRIPT}" >> "${BRIDGE_LOG}" 2>&1 &`);
+      const bridge = exec(`cd "${__dirname}" && nohup node --unhandled-rejections=warn "${BRIDGE_SCRIPT}" >> "${BRIDGE_LOG}" 2>&1 &`);
       console.log('  ✓ Telegram bridge started');
     } catch (e) {
       console.error('  ✗ Failed to start telegram bridge:', e.message);

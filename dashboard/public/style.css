@@ -938,6 +938,8 @@ body {
 #chatToggle {
   position: relative;
   transition: transform 0.2s, background 0.3s;
+  overflow: visible !important;
+  -webkit-mask-image: none;
 }
 #chatToggle[data-unread]::after {
   content: attr(data-unread);
