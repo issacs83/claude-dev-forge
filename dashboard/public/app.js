@@ -29,6 +29,8 @@ function connect() {
       showConfirmNotification(msg.data);
     } else if (msg.type === 'event' && msg.data && msg.data.type === 'agent_complete') {
       showAgentCompleteNotification(msg.data);
+    } else if (msg.type === 'chat_message') {
+      handleChatWS(msg);
     }
   };
 }
@@ -1296,6 +1298,7 @@ function onProjectFilterChange() {
   localStorage.setItem('jun_active_project', activeProjectFilter);
   renderKanban();
   renderDocuments();
+  updateChatProject();
 }
 
 // --- Drag & Drop ---
@@ -1624,6 +1627,180 @@ async function openFile(url, fileName) {
   } catch (e) {
     showInfoNotification('파일 미생성', `"${fileName}" 파일이 아직 생성되지 않았습니다.`);
   }
+}
+
+// --- Project Chat ---
+let _chatOpen = false;
+let _chatPendingFile = null; // { data, fileName, type }
+
+function toggleChat() {
+  _chatOpen = !_chatOpen;
+  const panel = document.getElementById('chatPanel');
+  panel.style.display = _chatOpen ? 'flex' : 'none';
+  if (_chatOpen) loadChatHistory();
+}
+
+async function loadChatHistory() {
+  const pid = activeProjectFilter === 'all' ? (state.projects && state.projects[0] ? state.projects[0].id : '1') : activeProjectFilter;
+  const project = (state.projects || []).find(p => p.id === pid);
+  document.getElementById('chatProjectName').textContent = project ? `${project.name} — project-director` : 'project-director';
+
+  try {
+    const res = await fetch('/api/chat/' + pid);
+    const messages = await res.json();
+    renderChatMessages(messages);
+  } catch (e) {
+    document.getElementById('chatMessages').innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">채팅 로드 실패</div>';
+  }
+}
+
+function renderChatMessages(messages) {
+  const container = document.getElementById('chatMessages');
+  if (!messages.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:32px;font-size:13px">팀장 에이전트에게 메시지를 보내세요</div>';
+    return;
+  }
+
+  container.innerHTML = messages.map(m => {
+    const isUser = m.from === 'user';
+    const align = isUser ? 'flex-end' : 'flex-start';
+    const bg = isUser ? 'rgba(59,130,246,0.15)' : 'rgba(100,116,139,0.1)';
+    const borderColor = isUser ? 'var(--accent-blue)' : 'var(--border)';
+    const nameColor = isUser ? 'var(--accent-blue)' : 'var(--accent-green)';
+    const time = new Date(m.timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+
+    let content = '';
+    if (m.type === 'image' && m.fileUrl) {
+      content = `<img src="${m.fileUrl}" style="max-width:200px;border-radius:6px;margin-top:4px;cursor:pointer" onclick="window.open('${m.fileUrl}','_blank')" />`;
+      if (m.message) content = `<div style="font-size:13px;margin-bottom:4px">${escapeHtml(m.message)}</div>` + content;
+    } else if (m.type === 'file' && m.fileUrl) {
+      content = `<a href="${m.fileUrl}" target="_blank" style="color:var(--accent-blue);font-size:12px">📎 ${escapeHtml(m.fileName || 'file')}</a>`;
+      if (m.message) content = `<div style="font-size:13px;margin-bottom:4px">${escapeHtml(m.message)}</div>` + content;
+    } else {
+      content = `<div style="font-size:13px;white-space:pre-wrap">${escapeHtml(m.message)}</div>`;
+    }
+
+    return `<div style="display:flex;justify-content:${align};margin-bottom:8px">
+      <div style="max-width:85%;background:${bg};border-left:3px solid ${borderColor};padding:8px 12px;border-radius:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:11px;font-weight:600;color:${nameColor}">${escapeHtml(m.from)}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:12px">${time}</span>
+        </div>
+        ${content}
+      </div>
+    </div>`;
+  }).join('');
+
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  const pid = activeProjectFilter === 'all' ? (state.projects && state.projects[0] ? state.projects[0].id : '1') : activeProjectFilter;
+
+  if (_chatPendingFile) {
+    // Upload file first
+    const uploadRes = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_chatPendingFile)
+    });
+    const uploadData = await uploadRes.json();
+
+    if (uploadData.ok) {
+      await fetch('/api/chat/' + pid, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'user',
+          message: msg,
+          type: _chatPendingFile.type === 'image' ? 'image' : 'file',
+          fileName: _chatPendingFile.fileName,
+          fileUrl: uploadData.url
+        })
+      });
+    }
+    _chatPendingFile = null;
+    document.getElementById('chatPreview').style.display = 'none';
+    document.getElementById('chatPreview').innerHTML = '';
+  } else if (msg) {
+    await fetch('/api/chat/' + pid, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'user', message: msg })
+    });
+  } else {
+    return;
+  }
+
+  input.value = '';
+  loadChatHistory();
+}
+
+// Paste image from clipboard
+function handleChatPaste(event) {
+  const items = event.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      event.preventDefault();
+      const file = item.getAsFile();
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        _chatPendingFile = { data: e.target.result, fileName: 'screenshot.png', type: 'image' };
+        const preview = document.getElementById('chatPreview');
+        preview.style.display = 'block';
+        preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px">
+          <img src="${e.target.result}" style="max-height:60px;border-radius:4px" />
+          <span style="font-size:11px;color:var(--text-secondary)">screenshot.png</span>
+          <button onclick="_chatPendingFile=null;this.parentElement.parentElement.style.display='none'" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
+        </div>`;
+      };
+      reader.readAsDataURL(file);
+      break;
+    }
+  }
+}
+
+// Drag & drop file to chat
+function handleChatFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  const isImage = file.type.startsWith('image/');
+  reader.onload = (e) => {
+    _chatPendingFile = { data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' };
+    const preview = document.getElementById('chatPreview');
+    preview.style.display = 'block';
+    if (isImage) {
+      preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px">
+        <img src="${e.target.result}" style="max-height:60px;border-radius:4px" />
+        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(file.name)}</span>
+        <button onclick="_chatPendingFile=null;this.parentElement.parentElement.style.display='none'" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
+      </div>`;
+    } else {
+      preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px">
+        <span>📎</span>
+        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(file.name)} (${(file.size/1024).toFixed(0)}KB)</span>
+        <button onclick="_chatPendingFile=null;this.parentElement.parentElement.style.display='none'" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
+      </div>`;
+    }
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+// WebSocket: listen for chat messages
+function handleChatWS(msg) {
+  if (msg.type === 'chat_message' && _chatOpen) {
+    loadChatHistory();
+  }
+}
+
+// Update chat when project changes
+function updateChatProject() {
+  if (_chatOpen) loadChatHistory();
 }
 
 // --- Init ---

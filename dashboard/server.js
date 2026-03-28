@@ -128,7 +128,8 @@ process.on('SIGTERM', () => { state.save(DATA_FILE); process.exit(0); });
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // Serve project output files (for download/view)
 // Try multiple paths: sessions dir, project dirs, absolute path
@@ -743,6 +744,99 @@ app.get('/api/sessions/:name/output', (req, res) => {
     res.json({ window: req.params.name, output, timestamp: new Date().toISOString() });
   } catch (e) {
     res.status(404).json({ error: 'Session not found or no output' });
+  }
+});
+
+// --- Project Chat (팀장 소통) ---
+const CHAT_DIR = path.join(__dirname, 'data', 'chat');
+
+// Get chat history for a project
+app.get('/api/chat/:projectId', (req, res) => {
+  const chatFile = path.join(CHAT_DIR, `project-${req.params.projectId}.json`);
+  try {
+    if (fs.existsSync(chatFile)) {
+      const messages = JSON.parse(fs.readFileSync(chatFile, 'utf-8'));
+      res.json(messages);
+    } else {
+      res.json([]);
+    }
+  } catch (e) { res.json([]); }
+});
+
+// Send chat message
+app.post('/api/chat/:projectId', (req, res) => {
+  const { from, message, type, fileName, fileUrl } = req.body;
+  if (!message && !fileUrl) return res.status(400).json({ error: 'message or file required' });
+
+  const chatFile = path.join(CHAT_DIR, `project-${req.params.projectId}.json`);
+  let messages = [];
+  try { if (fs.existsSync(chatFile)) messages = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
+
+  const msg = {
+    id: String(Date.now()),
+    from: from || 'user',
+    message: message || '',
+    type: type || 'text', // text | image | file
+    fileName: fileName || null,
+    fileUrl: fileUrl || null,
+    timestamp: new Date().toISOString()
+  };
+  messages.push(msg);
+
+  // Keep last 500 messages per project
+  if (messages.length > 500) messages = messages.slice(-500);
+  fs.writeFileSync(chatFile, JSON.stringify(messages, null, 2), 'utf-8');
+
+  // Broadcast to dashboard
+  broadcast({ type: 'chat_message', data: { projectId: req.params.projectId, message: msg } });
+
+  // Forward to Claude tmux session (if from user)
+  if ((from || 'user') === 'user') {
+    const project = state.getProjects().find(p => p.id === req.params.projectId);
+    if (project) {
+      try {
+        const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
+        const lines = sessions.trim().split('\n');
+        const safeName = project.sessionName || 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
+        let target = lines.find(l => l.startsWith(safeName + '|'));
+        if (!target) target = lines.find(l => l.includes('|claude'));
+        if (target) {
+          const windowName = target.split('|')[0];
+          let instruction = '';
+          if (type === 'image' && fileUrl) {
+            instruction = `[Jun.AI 채팅 — 이미지] 사용자가 이미지를 보냈습니다: http://58.29.21.11:7700${fileUrl}`;
+            if (message) instruction += ` 메시지: ${message}`;
+          } else if (type === 'file' && fileUrl) {
+            instruction = `[Jun.AI 채팅 — 파일] 사용자가 파일을 보냈습니다: ${fileName || 'file'} (http://58.29.21.11:7700${fileUrl})`;
+            if (message) instruction += ` 메시지: ${message}`;
+          } else {
+            instruction = `[Jun.AI 채팅] ${message}`;
+          }
+          const escaped = instruction.replace(/"/g, '\\"');
+          exec(`tmux send-keys -t work:${windowName} "${escaped}" Enter`);
+        }
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  res.json(msg);
+});
+
+// Upload file (for chat attachments)
+app.post('/api/upload', (req, res) => {
+  const { data, fileName, type } = req.body; // base64 data
+  if (!data) return res.status(400).json({ error: 'data required' });
+
+  const ext = fileName ? path.extname(fileName) : (type === 'image' ? '.png' : '.bin');
+  const safeName = `${Date.now()}-${(fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '')}`;
+  const filePath = path.join(__dirname, 'public', 'uploads', safeName);
+
+  try {
+    const buffer = Buffer.from(data.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    fs.writeFileSync(filePath, buffer);
+    res.json({ ok: true, url: '/uploads/' + safeName, fileName: safeName, size: buffer.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
