@@ -2657,6 +2657,7 @@ function initTerminal() {
     },
     scrollback: 5000,
     convertEol: true,
+    rightClickSelectsWord: true,
   });
   fitAddon = new FitAddon.FitAddon();
   term.loadAddon(fitAddon);
@@ -2664,6 +2665,37 @@ function initTerminal() {
   term.open(container);
   fitAddon.fit();
   term.writeln('\x1b[90m  Select a session to connect...\x1b[0m');
+
+  // --- Ctrl+C copy / Ctrl+V paste / Shift+Enter newline ---
+  term.attachCustomKeyEventHandler((ev) => {
+    // Ctrl+C: copy if text selected, otherwise send to terminal
+    if (ev.ctrlKey && ev.key === 'c' && ev.type === 'keydown') {
+      const sel = term.getSelection();
+      if (sel) {
+        navigator.clipboard.writeText(sel);
+        term.clearSelection();
+        return false; // Don't send to terminal
+      }
+      return true; // No selection — send Ctrl+C (SIGINT) to terminal
+    }
+    // Ctrl+V: paste from clipboard
+    if (ev.ctrlKey && ev.key === 'v' && ev.type === 'keydown') {
+      navigator.clipboard.readText().then(text => {
+        if (text && termWs && termWs.readyState === WebSocket.OPEN) {
+          termWs.send(text);
+        }
+      }).catch(() => {});
+      return false;
+    }
+    // Shift+Enter: send newline
+    if (ev.shiftKey && ev.key === 'Enter' && ev.type === 'keydown') {
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        termWs.send('\n');
+      }
+      return false;
+    }
+    return true;
+  });
 
   // Auto-fit on resize
   window.addEventListener('resize', () => { if (fitAddon) fitAddon.fit(); });
