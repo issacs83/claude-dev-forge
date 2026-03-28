@@ -918,8 +918,16 @@ body {
   .modal { min-width: unset !important; width: 92vw !important; }
 
   /* Chat widget — above tab bar */
-  #chatWidget { bottom: 65px !important; }
-  #chatPanel { width: calc(100vw - 32px) !important; max-height: 60vh !important; }
+  #chatWidget { bottom: 65px !important; right: 8px !important; }
+  #chatPanel {
+    position: fixed !important;
+    bottom: 60px !important;
+    right: 8px !important;
+    left: 8px !important;
+    width: auto !important;
+    max-height: 65vh !important;
+    z-index: 1200 !important;
+  }
 
   /* Mobile tab bar */
   #mobileTabBar { display: flex !important; }
