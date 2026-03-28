@@ -1631,7 +1631,7 @@ async function openFile(url, fileName) {
 
 // --- Project Chat ---
 let _chatOpen = false;
-let _chatPendingFile = null; // { data, fileName, type }
+let _chatPendingFiles = []; // [{ data, fileName, type }]
 
 function toggleChat() {
   _chatOpen = !_chatOpen;
@@ -1772,7 +1772,7 @@ async function sendChatMessage() {
   const msg = input.value.trim();
   const pid = _activeChatProject || (state.projects && state.projects[0] ? state.projects[0].id : '1');
 
-  if (!msg && !_chatPendingFile && !_chatPendingText) return;
+  if (!msg && !_chatPendingFiles.length && !_chatPendingText) return;
 
   // Combine input text + pending text
   let fullMessage = '';
@@ -1789,28 +1789,34 @@ async function sendChatMessage() {
   if (typingEl) typingEl.style.display = 'block';
 
   try {
-    if (_chatPendingFile) {
-      const uploadRes = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(_chatPendingFile)
-      });
-      const uploadData = await uploadRes.json();
-
-      if (uploadData.ok) {
-        await fetch('/api/chat/' + pid, {
+    if (_chatPendingFiles.length > 0) {
+      // Upload and send each file
+      for (let i = 0; i < _chatPendingFiles.length; i++) {
+        const pf = _chatPendingFiles[i];
+        const uploadRes = await fetch('/api/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: 'user',
-            message: fullMessage,
-            type: _chatPendingFile.type === 'image' ? 'image' : 'file',
-            fileName: _chatPendingFile.fileName,
-            fileUrl: uploadData.url
-          })
+          body: JSON.stringify(pf)
         });
+        const uploadData = await uploadRes.json();
+        if (uploadData.ok) {
+          // First file carries the full message, rest are file-only
+          const fileMsg = i === 0 ? fullMessage : '';
+          await fetch('/api/chat/' + pid, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: 'user',
+              message: fileMsg,
+              type: pf.type === 'image' ? 'image' : 'file',
+              fileName: pf.fileName,
+              fileUrl: uploadData.url
+            })
+          });
+        }
       }
-      _chatPendingFile = null;
+      // If there was text but no message sent yet (all files failed)
+      _chatPendingFiles = [];
       _chatPendingText = null;
       updateChatPreview();
     } else {
@@ -1864,7 +1870,8 @@ function handleChatPaste(event) {
       const file = item.getAsFile();
       const reader = new FileReader();
       reader.onload = (e) => {
-        _chatPendingFile = { data: e.target.result, fileName: 'screenshot.png', type: 'image' };
+        const idx = _chatPendingFiles.filter(f => f.type === 'image').length + 1;
+        _chatPendingFiles.push({ data: e.target.result, fileName: `screenshot-${idx}.png`, type: 'image' });
         updateChatPreview();
       };
       reader.readAsDataURL(file);
@@ -1887,7 +1894,7 @@ let _chatPendingText = null;
 
 function updateChatPreview() {
   const preview = document.getElementById('chatPreview');
-  if (!_chatPendingFile && !_chatPendingText) {
+  if (!_chatPendingFiles.length && !_chatPendingText) {
     preview.style.display = 'none';
     preview.innerHTML = '';
     return;
@@ -1902,27 +1909,34 @@ function updateChatPreview() {
     const chars = _chatPendingText.length;
     html += `<div style="padding:8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-size:11px;color:var(--accent-blue);font-weight:600">📋 붙여넣기 (${chars.toLocaleString()}자, ${lines}줄)</span>
+        <span style="font-size:11px;color:var(--accent-blue);font-weight:600">📋 텍스트 (${chars.toLocaleString()}자, ${lines}줄)</span>
         <button onclick="_chatPendingText=null;updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px">✕</button>
       </div>
       <div style="max-height:60px;overflow-y:auto;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;line-height:1.4;background:var(--bg-primary);padding:6px;border-radius:4px">${escapeHtml(_chatPendingText.substring(0, 500))}${_chatPendingText.length > 500 ? '\n...' : ''}</div>
     </div>`;
   }
 
-  // File/image attachment
-  if (_chatPendingFile) {
-    if (_chatPendingFile.type === 'image') {
-      html += `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
-        <img src="${_chatPendingFile.data}" style="max-height:50px;border-radius:4px" />
-        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(_chatPendingFile.fileName)}</span>
-        <button onclick="_chatPendingFile=null;updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
-      </div>`;
-    } else {
-      html += `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
-        <span>📎</span>
-        <span style="font-size:11px;color:var(--text-secondary)">${escapeHtml(_chatPendingFile.fileName)}</span>
-        <button onclick="_chatPendingFile=null;updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer">✕</button>
-      </div>`;
+  // File/image attachments — multiple
+  if (_chatPendingFiles.length > 0) {
+    html += `<div style="display:flex;flex-wrap:wrap;gap:6px">`;
+    _chatPendingFiles.forEach((pf, idx) => {
+      if (pf.type === 'image') {
+        html += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
+          <img src="${pf.data}" style="max-height:40px;border-radius:4px" />
+          <span style="font-size:10px;color:var(--text-secondary)">${escapeHtml(pf.fileName)}</span>
+          <button onclick="_chatPendingFiles.splice(${idx},1);updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:12px">✕</button>
+        </div>`;
+      } else {
+        html += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
+          <span>📎</span>
+          <span style="font-size:10px;color:var(--text-secondary)">${escapeHtml(pf.fileName)}</span>
+          <button onclick="_chatPendingFiles.splice(${idx},1);updateChatPreview()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:12px">✕</button>
+        </div>`;
+      }
+    });
+    html += `</div>`;
+    if (_chatPendingFiles.length > 1) {
+      html += `<div style="font-size:10px;color:var(--text-muted)">${_chatPendingFiles.length}개 첨부 | <button onclick="_chatPendingFiles=[];updateChatPreview()" style="background:none;border:none;color:var(--accent-red);cursor:pointer;font-size:10px">전체 삭제</button></div>`;
     }
   }
 
@@ -1930,18 +1944,20 @@ function updateChatPreview() {
   preview.innerHTML = html;
 }
 
-// Drag & drop file to chat input area
+// Drag & drop file(s) to chat input area
 function handleChatDrop(event) {
   const files = event.dataTransfer?.files;
   if (!files || !files.length) return;
-  const file = files[0];
-  const reader = new FileReader();
-  const isImage = file.type.startsWith('image/');
-  reader.onload = (e) => {
-    _chatPendingFile = { data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' };
-    updateChatPreview();
-  };
-  reader.readAsDataURL(file);
+  // Support multiple files
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    const isImage = file.type.startsWith('image/');
+    reader.onload = (e) => {
+      _chatPendingFiles.push({ data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' });
+      updateChatPreview();
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // File input handler
@@ -1951,7 +1967,7 @@ function handleChatFile(input) {
   const reader = new FileReader();
   const isImage = file.type.startsWith('image/');
   reader.onload = (e) => {
-    _chatPendingFile = { data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' };
+    _chatPendingFiles.push({ data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' });
     updateChatPreview();
   };
   reader.readAsDataURL(file);
