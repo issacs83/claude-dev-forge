@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TaskForce.AI - PDLC Dashboard</title>
+  <title>Jun.AI - PDLC Dashboard</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- Header -->
   <header class="header">
     <div class="header-left">
-      <h1 class="logo">TaskForce<span class="logo-ai">.AI</span></h1>
+      <h1 class="logo">Jun<span class="logo-ai">.AI</span></h1>
       <span class="live-badge" id="liveBadge">● Live</span>
     </div>
     <div class="header-right">
@@ -22,20 +22,14 @@
     </div>
   </header>
 
-  <!-- Phase Progress Bar -->
-  <div class="phase-bar">
-    <div class="phase-bar-label">PDLC Progress</div>
-    <div class="phase-track" id="phaseTrack"></div>
-    <div class="phase-percent" id="phasePercent">0%</div>
-  </div>
-
-  <!-- Filter Bar -->
+  <!-- Project Bar (최상위 — 가장 큰 범위) -->
   <div class="filter-bar">
     <div class="filter-left">
       <label>Project:</label>
-      <select class="filter-select" id="projectFilter">
+      <select class="filter-select" id="projectFilter" onchange="onProjectFilterChange()">
         <option value="all">All Projects</option>
       </select>
+      <button class="btn-new-task" style="font-size:12px;padding:5px 10px;margin-left:4px" onclick="showNewProjectModal()">+ Project</button>
     </div>
     <div class="filter-right">
       <label>Role:</label>
@@ -51,7 +45,14 @@
     </div>
   </div>
 
-  <!-- Kanban Board -->
+  <!-- PDLC Phase Progress Bar (프로젝트 하위) -->
+  <div class="phase-bar">
+    <div class="phase-bar-label">PDLC Progress</div>
+    <div class="phase-track" id="phaseTrack"></div>
+    <div class="phase-percent" id="phasePercent">0%</div>
+  </div>
+
+  <!-- Kanban Board (6 columns — HOLD 추가) -->
   <div class="kanban-board" id="kanbanBoard">
     <div class="kanban-column" data-status="todo">
       <div class="column-header todo">
@@ -59,6 +60,13 @@
         <span class="column-count" id="countTodo">0</span>
       </div>
       <div class="column-body" id="colTodo"></div>
+    </div>
+    <div class="kanban-column" data-status="hold">
+      <div class="column-header hold">
+        <span>Hold</span>
+        <span class="column-count" id="countHold">0</span>
+      </div>
+      <div class="column-body" id="colHold"></div>
     </div>
     <div class="kanban-column" data-status="claimed">
       <div class="column-header claimed">
@@ -90,7 +98,7 @@
     </div>
   </div>
 
-  <!-- Agent Monitor Panel (collapsible) -->
+  <!-- Agent Monitor Panel -->
   <div class="agent-panel" id="agentPanel">
     <div class="panel-header" onclick="togglePanel('agentPanel')">
       <span>Agent Monitor</span>
@@ -108,11 +116,17 @@
     <div class="panel-body" id="docList"></div>
   </div>
 
+  <!-- Notification Container (에이전트 완료 알림) -->
+  <div class="notification-container" id="notificationContainer"></div>
+
   <!-- New Task Modal -->
   <div class="modal-overlay" id="newTaskModal" style="display:none">
     <div class="modal">
       <h3>New Task</h3>
       <input id="newTaskTitle" placeholder="Task title" />
+      <select id="newTaskProject">
+        <option value="">No Project</option>
+      </select>
       <select id="newTaskPriority">
         <option value="low">Low</option>
         <option value="medium" selected>Medium</option>
@@ -130,6 +144,31 @@
       <div class="modal-actions">
         <button onclick="createTask()">Create</button>
         <button onclick="hideNewTaskModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Project Modal -->
+  <div class="modal-overlay" id="newProjectModal" style="display:none">
+    <div class="modal">
+      <h3>New Project</h3>
+      <input id="newProjectName" placeholder="Project name" />
+      <input id="newProjectDesc" placeholder="Description (optional)" />
+      <div class="modal-actions">
+        <button onclick="createProject()">Create</button>
+        <button onclick="hideNewProjectModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Assign Agent Modal -->
+  <div class="modal-overlay" id="assignAgentModal" style="display:none">
+    <div class="modal">
+      <h3>에이전트 배정</h3>
+      <div class="assign-info" id="assignInfo"></div>
+      <div class="assign-agent-list" id="assignAgentList"></div>
+      <div class="modal-actions">
+        <button onclick="hideAssignModal()">취소</button>
       </div>
     </div>
   </div>

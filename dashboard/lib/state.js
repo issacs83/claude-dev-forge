@@ -3,6 +3,8 @@
  */
 class StateManager {
   constructor() {
+    this.projects = [];
+    this.projectIdCounter = 0;
     this.tasks = [];
     this.agents = {};
     this.phases = this._initPhases();
@@ -106,6 +108,28 @@ class StateManager {
     }
   }
 
+  // --- Project Management ---
+  createProject(data) {
+    const project = {
+      id: String(++this.projectIdCounter),
+      name: data.name || '',
+      description: data.description || '',
+      status: data.status || 'active',
+      createdAt: new Date().toISOString()
+    };
+    this.projects.push(project);
+    return project;
+  }
+
+  updateProject(id, updates) {
+    const project = this.projects.find(p => p.id === id);
+    if (!project) return null;
+    Object.assign(project, updates);
+    return project;
+  }
+
+  getProjects() { return this.projects; }
+
   // --- Task Management ---
   createTask(data) {
     const task = {
@@ -117,6 +141,7 @@ class StateManager {
       role: data.role || 'general',
       agent: data.agent || '',
       phase: data.phase,
+      project: data.project || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       comments: 0
@@ -148,6 +173,7 @@ class StateManager {
     return {
       stats,
       tasks,
+      projects: this.projects,
       agents: this.agents,
       phases: this.phases,
       phaseProgress,

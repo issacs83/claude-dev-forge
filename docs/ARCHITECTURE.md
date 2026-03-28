@@ -13,7 +13,7 @@
 │  skills/     19 multi-step workflows         │
 │  hooks/      12 event-driven scripts         │
 │  rules/      13 coding standards             │
-│  dashboard/  TaskForce.AI web app            │
+│  dashboard/  Jun.AI web app            │
 │  settings.json   permissions + hook bindings │
 │  mcp-servers.json   5 MCP servers            │
 └───────────────────┬─────────────────────────┘
@@ -120,7 +120,7 @@ Claude Code (Terminal)
 Dashboard Server (Node.js, port 7700)
   ├── REST API: /api/status, /api/agents, /api/tasks
   ├── WebSocket: real-time push to browser
-  └── Static: TaskForce.AI Kanban Board UI
+  └── Static: Jun.AI Kanban Board UI
         │
         ▼
   Browser (localhost:7700)

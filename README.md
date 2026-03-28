@@ -12,7 +12,7 @@
 | **훅** | 12 | 보안 6-layer + 품질 게이트 + 컨텍스트 추적 + 세션 관리 |
 | **규칙** | 13 | 코딩 원칙, 보안, 테스트, Git, PDLC, 워크플로우, 패턴 |
 | **MCP** | 5 | memory, github, context7, fetch, jina-reader |
-| **대시보드** | 1 | TaskForce.AI 칸반 보드 (WebSocket 실시간) |
+| **대시보드** | 1 | Jun.AI 칸반 보드 (WebSocket 실시간) |
 
 ## 빠른 설치
 
@@ -162,7 +162,7 @@ cd dashboard && npm install && npm start
 # → http://localhost:7700
 ```
 
-TaskForce.AI 칸반 보드: 5컬럼 (To Do → Claimed → In Progress → Review → Done), 실시간 WebSocket, 에이전트 모니터, PDLC 진행률, 문서 산출물 추적
+Jun.AI 칸반 보드: 5컬럼 (To Do → Claimed → In Progress → Review → Done), 실시간 WebSocket, 에이전트 모니터, PDLC 진행률, 문서 산출물 추적
 
 ## 아키텍처
 

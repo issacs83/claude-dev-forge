@@ -1,7 +1,8 @@
-// TaskForce.AI — Dashboard Client
+// Jun.AI — Dashboard Client
 let ws = null;
 let state = { tasks: [], agents: {}, phases: [], documents: [], stats: {}, phaseProgress: 0 };
 let activeRoleFilter = 'all';
+let activeProjectFilter = 'all';
 
 // --- WebSocket ---
 function connect() {
@@ -24,6 +25,10 @@ function connect() {
     if (msg.type === 'state_update') {
       state = msg.data;
       render();
+    } else if (msg.type === 'agent_confirm') {
+      showConfirmNotification(msg.data);
+    } else if (msg.type === 'event' && msg.data && msg.data.type === 'agent_complete') {
+      showAgentCompleteNotification(msg.data);
     }
   };
 }
@@ -32,9 +37,28 @@ function connect() {
 function render() {
   renderStats();
   renderPhases();
+  renderProjects();
   renderKanban();
   renderAgents();
   renderDocuments();
+}
+
+function renderProjects() {
+  const projects = state.projects || [];
+  const filterSelect = document.getElementById('projectFilter');
+  const taskProjectSelect = document.getElementById('newTaskProject');
+  const currentVal = filterSelect.value;
+
+  // Update filter dropdown
+  filterSelect.innerHTML = '<option value="all">All Projects</option>' +
+    projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  filterSelect.value = currentVal;
+
+  // Update task modal project dropdown
+  if (taskProjectSelect) {
+    taskProjectSelect.innerHTML = '<option value="">No Project</option>' +
+      projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  }
 }
 
 function renderStats() {
@@ -63,12 +87,13 @@ function renderPhases() {
 
 function renderKanban() {
   const cols = {
-    todo: [], claimed: [], in_progress: [], review: [], done: []
+    todo: [], hold: [], claimed: [], in_progress: [], review: [], done: []
   };
 
   const tasks = (state.tasks || []).filter(t => {
-    if (activeRoleFilter === 'all') return true;
-    return t.role === activeRoleFilter;
+    if (activeRoleFilter !== 'all' && t.role !== activeRoleFilter) return false;
+    if (activeProjectFilter !== 'all' && t.project !== activeProjectFilter) return false;
+    return true;
   });
 
   tasks.forEach(t => {
@@ -87,6 +112,11 @@ function renderKanban() {
     const countId = 'count' + capitalize(status);
     const el = document.getElementById(countId);
     if (el) el.textContent = cols[status].length;
+
+    // Bind drop events on column body
+    container.ondragover = (e) => { e.preventDefault(); container.classList.add('drag-over'); };
+    container.ondragleave = () => { container.classList.remove('drag-over'); };
+    container.ondrop = (e) => { e.preventDefault(); container.classList.remove('drag-over'); onDrop(e, status); };
   });
 }
 
@@ -95,21 +125,62 @@ function renderCard(task) {
   const roleClass = 'role-' + (task.role || 'dev');
   const timeAgo = getTimeAgo(task.updatedAt);
 
+  // Find agent working on this task
+  const agents = state.agents || {};
+  const assignedAgent = task.agent ? agents[task.agent] : null;
+
+  let agentStatusHTML = '';
+  if (task.status === 'in_progress' && assignedAgent && assignedAgent.status === 'running') {
+    const pct = assignedAgent.progress || 0;
+    const elapsed = getElapsedTime(assignedAgent.startedAt);
+    const remaining = estimateRemaining(assignedAgent.startedAt, pct);
+    agentStatusHTML = `
+      <div class="card-agent-status">
+        <div class="card-spinner"></div>
+        <div class="card-status-info">
+          <span class="agent-label">${task.agent} ${pct}%</span>
+          <span class="time-label">${elapsed} / ~${remaining}</span>
+        </div>
+      </div>
+      <div class="card-progress-mini"><div class="fill" style="width:${pct}%"></div></div>
+    `;
+  } else if (task.status === 'in_progress' && task.agent) {
+    agentStatusHTML = `
+      <div class="card-agent-status">
+        <div class="card-spinner"></div>
+        <div class="card-status-info">
+          <span class="agent-label">${task.agent}</span>
+          <span class="time-label">working...</span>
+        </div>
+      </div>
+    `;
+  } else if (task.status === 'done' && task.agent) {
+    agentStatusHTML = `
+      <div class="card-agent-status completed-status">
+        <div class="card-spinner done"></div>
+        <div class="card-status-info">
+          <span class="agent-label done">${task.agent}</span>
+          <span class="time-label">Status changed to DONE</span>
+        </div>
+      </div>
+    `;
+  }
+
   return `
-    <div class="task-card" data-id="${task.id}">
+    <div class="task-card" data-id="${task.id}" draggable="true"
+         ondragstart="onDragStart(event, '${task.id}')"
+         ondragend="onDragEnd(event)">
       <div class="card-top">
         <span class="card-title">${escapeHtml(task.title)}</span>
         <span class="priority-badge ${priorityClass}">${capitalize(task.priority || 'medium')}</span>
       </div>
       <span class="role-badge ${roleClass}">${task.role || 'dev'}</span>
-      <div class="card-meta">
+      ${agentStatusHTML}
+      <div class="card-meta" style="margin-top:6px">
         <span>
           ${task.comments ? `💬 ${task.comments}` : ''}
-          ${task.status === 'done' ? 'Status changed to DONE' : ''}
+          ${!task.agent && task.status === 'done' ? 'Status changed to DONE' : ''}
         </span>
-      </div>
-      <div class="card-meta" style="margin-top:4px">
-        <span class="card-agent">${task.agent || ''}</span>
         <span>${timeAgo}</span>
       </div>
     </div>
@@ -132,16 +203,40 @@ function renderAgents() {
 
   list.innerHTML = entries.map(a => {
     const statusClass = 'status-' + (a.status || 'waiting');
+    const spinnerClass = a.status === 'completed' ? 'completed' : a.status === 'waiting' ? 'waiting' : '';
     const progressClass = a.status === 'completed' ? 'completed' : 'running';
+    const pct = a.progress || 0;
+    const pctClass = a.status === 'completed' ? 'done' : '';
+
+    // Time calculations
+    const elapsed = getElapsedTime(a.startedAt);
+    const remaining = estimateRemaining(a.startedAt, pct);
+    const duration = a.duration ? a.duration + 'min' : '';
+
+    const timeHTML = a.status === 'completed'
+      ? `<span class="elapsed">completed ${duration ? 'in ' + duration : ''}</span>`
+      : a.status === 'running'
+      ? `<span class="elapsed">elapsed: ${elapsed}</span><span class="remaining">remaining: ~${remaining}</span>`
+      : `<span class="elapsed">waiting...</span>`;
+
+    const taskText = a.task || a.waitingFor || a.message || '';
+
     return `
       <div class="agent-row">
+        <div class="agent-spinner ${spinnerClass}"></div>
         <span class="agent-name">${a.name}</span>
-        <span>${a.task || a.waitingFor || ''}</span>
+        <span class="agent-task" title="${escapeHtml(taskText)}">${escapeHtml(taskText)}</span>
         <span class="agent-status-badge ${statusClass}">${a.status}</span>
-        <div class="progress-bar">
-          <div class="progress-fill ${progressClass}" style="width:${a.progress || 0}%"></div>
+        <div class="agent-progress-col">
+          <div class="progress-bar">
+            <div class="progress-fill ${progressClass}" style="width:${pct}%"></div>
+          </div>
+          <div class="progress-text">
+            <span class="progress-percent ${pctClass}">${pct}%</span>
+            <span>${a.message && a.status === 'running' ? escapeHtml(a.message) : ''}</span>
+          </div>
         </div>
-        <span style="color:var(--text-muted);font-size:12px">${a.message || ''}</span>
+        <div class="agent-time">${timeHTML}</div>
       </div>
     `;
   }).join('');
@@ -178,15 +273,159 @@ async function createTask() {
   if (!title) return;
   const priority = document.getElementById('newTaskPriority').value;
   const role = document.getElementById('newTaskRole').value;
+  const project = document.getElementById('newTaskProject').value;
 
   await fetch('/api/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, priority, role, status: 'todo' })
+    body: JSON.stringify({ title, priority, role, project, status: 'todo' })
   });
 
   document.getElementById('newTaskTitle').value = '';
   hideNewTaskModal();
+}
+
+function showNewProjectModal() { document.getElementById('newProjectModal').style.display = 'flex'; }
+function hideNewProjectModal() { document.getElementById('newProjectModal').style.display = 'none'; }
+
+async function createProject() {
+  const name = document.getElementById('newProjectName').value.trim();
+  if (!name) return;
+  const description = document.getElementById('newProjectDesc').value.trim();
+
+  await fetch('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description })
+  });
+
+  document.getElementById('newProjectName').value = '';
+  document.getElementById('newProjectDesc').value = '';
+  hideNewProjectModal();
+}
+
+function onProjectFilterChange() {
+  activeProjectFilter = document.getElementById('projectFilter').value;
+  renderKanban();
+}
+
+// --- Drag & Drop ---
+let dragTaskId = null;
+
+function onDragStart(e, taskId) {
+  dragTaskId = taskId;
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragEnd(e) {
+  e.target.classList.remove('dragging');
+  document.querySelectorAll('.column-body').forEach(c => c.classList.remove('drag-over'));
+}
+
+async function onDrop(e, newStatus) {
+  if (!dragTaskId) return;
+  const task = (state.tasks || []).find(t => t.id === dragTaskId);
+  if (!task) return;
+
+  const oldStatus = task.status;
+  if (oldStatus === newStatus) { dragTaskId = null; return; }
+
+  // If moving to in_progress → show agent assign modal
+  if (newStatus === 'in_progress' || newStatus === 'claimed') {
+    showAssignModal(dragTaskId, newStatus);
+    dragTaskId = null;
+    return;
+  }
+
+  // Otherwise just update status
+  await updateTaskStatus(dragTaskId, newStatus);
+  dragTaskId = null;
+}
+
+async function updateTaskStatus(taskId, status, agent) {
+  const body = { status };
+  if (agent) body.agent = agent;
+
+  await fetch(`/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  // If assigning to in_progress with agent → notify server to dispatch
+  if (status === 'in_progress' && agent) {
+    const task = (state.tasks || []).find(t => t.id === taskId);
+    await fetch('/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'agent_start',
+        agent: agent,
+        task: task ? task.title : '',
+        phase: task ? task.phase : undefined,
+        timestamp: new Date().toISOString()
+      })
+    });
+    showInfoNotification('에이전트 배정', `"${task ? task.title : ''}" → ${agent} 에이전트에게 전달되었습니다.`);
+  }
+}
+
+// --- Agent Assign Modal ---
+let pendingAssignTaskId = null;
+let pendingAssignStatus = null;
+
+const AVAILABLE_AGENTS = [
+  'project-director', 'web-developer', 'architect', 'planner',
+  'code-reviewer', 'security-reviewer', 'tdd-guide', 'verify-agent',
+  'build-error-resolver', 'e2e-tester', 'evaluator',
+  'bsp-engineer', 'firmware-engineer', 'circuit-engineer',
+  'hardware-engineer', 'algorithm-researcher', 'graphics-engineer',
+  'sdk-developer', 'devops-engineer', 'maintenance-engineer',
+  'product-strategist', 'regulatory-specialist', 'doc-manager', 'qa-engineer',
+  'voc-researcher', 'ux-designer', 'marketing-strategist',
+  'report-writer', 'presentation-writer', 'hwp-writer', 'spreadsheet-writer',
+  'paper-patent-researcher', 'data-engineer', 'labeling-manager',
+  'labeling-reviewer', 'ai-trainer', 'mlops-engineer',
+  'cuda-engineer', 'npu-engineer', 'inference-optimizer',
+  'reverse-engineer', 'retroactive-documenter', 'env-provisioner'
+];
+
+function showAssignModal(taskId, newStatus) {
+  pendingAssignTaskId = taskId;
+  pendingAssignStatus = newStatus;
+  const task = (state.tasks || []).find(t => t.id === taskId);
+  const agents = state.agents || {};
+
+  document.getElementById('assignInfo').innerHTML =
+    `<b>"${escapeHtml(task ? task.title : '')}"</b> → <b>${newStatus}</b>로 이동합니다.<br>담당 에이전트를 선택하세요.`;
+
+  const listHTML = AVAILABLE_AGENTS.map(name => {
+    const a = agents[name];
+    const busy = a && a.status === 'running';
+    const dotClass = busy ? 'busy' : 'available';
+    const statusText = busy ? '(작업 중)' : '';
+    return `
+      <div class="assign-agent-item" onclick="assignAgent('${name}')">
+        <span><span class="status-dot ${dotClass}"></span><span class="name">${name}</span> ${statusText}</span>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('assignAgentList').innerHTML = listHTML;
+  document.getElementById('assignAgentModal').style.display = 'flex';
+}
+
+function hideAssignModal() {
+  document.getElementById('assignAgentModal').style.display = 'none';
+  pendingAssignTaskId = null;
+  pendingAssignStatus = null;
+}
+
+async function assignAgent(agentName) {
+  if (!pendingAssignTaskId) return;
+  await updateTaskStatus(pendingAssignTaskId, pendingAssignStatus, agentName);
+  hideAssignModal();
 }
 
 function togglePanel(id) {
@@ -234,6 +473,120 @@ function getTimeAgo(dateStr) {
 function formatTime(dateStr) {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function getElapsedTime(startedAt) {
+  if (!startedAt) return '--:--';
+  const diff = Date.now() - new Date(startedAt).getTime();
+  const secs = Math.floor(diff / 1000);
+  const mins = Math.floor(secs / 60);
+  const hrs = Math.floor(mins / 60);
+  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
+  if (mins > 0) return `${mins}m ${secs % 60}s`;
+  return `${secs}s`;
+}
+
+function estimateRemaining(startedAt, progress) {
+  if (!startedAt || !progress || progress <= 0) return '--:--';
+  if (progress >= 100) return '0s';
+  const elapsed = Date.now() - new Date(startedAt).getTime();
+  const totalEstimate = elapsed / (progress / 100);
+  const remaining = totalEstimate - elapsed;
+  const secs = Math.max(0, Math.floor(remaining / 1000));
+  const mins = Math.floor(secs / 60);
+  const hrs = Math.floor(mins / 60);
+  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
+  if (mins > 0) return `${mins}m ${secs % 60}s`;
+  return `${secs}s`;
+}
+
+// Auto-refresh elapsed times every second for running agents
+setInterval(() => {
+  const agents = state.agents || {};
+  const hasRunning = Object.values(agents).some(a => a.status === 'running');
+  if (hasRunning) {
+    renderAgents();
+    renderKanban();
+  }
+}, 1000);
+
+// --- Notifications ---
+let notifIdCounter = 0;
+
+function showAgentCompleteNotification(data) {
+  const agent = data.agent || 'Agent';
+  const task = data.task || '';
+  const nextAgent = data.next_agent || '';
+  const nextTask = data.next_task || '';
+
+  if (nextAgent) {
+    showConfirmNotification({
+      id: String(++notifIdCounter),
+      title: `${agent} 완료`,
+      message: `"${task}" 작업을 완료했습니다.\n이어서 ${nextAgent}로 "${nextTask}" 진행하시겠습니까?`,
+      agent: nextAgent,
+      task: nextTask
+    });
+  } else {
+    showInfoNotification(`${agent}`, `"${task}" 작업을 완료했습니다.`);
+  }
+}
+
+function showConfirmNotification(data) {
+  const container = document.getElementById('notificationContainer');
+  const id = data.id || String(++notifIdCounter);
+  const div = document.createElement('div');
+  div.className = 'notification warning';
+  div.id = 'notif-' + id;
+  div.innerHTML = `
+    <div class="notification-title">⚡ ${escapeHtml(data.title || 'Confirmation')}</div>
+    <div class="notification-body">${escapeHtml(data.message || '')}</div>
+    <div class="notification-actions">
+      <button class="btn-yes" onclick="respondNotification('${id}', true)">예</button>
+      <button class="btn-no" onclick="respondNotification('${id}', false)">아니오</button>
+    </div>
+  `;
+  container.appendChild(div);
+}
+
+function showInfoNotification(title, message) {
+  const container = document.getElementById('notificationContainer');
+  const id = String(++notifIdCounter);
+  const div = document.createElement('div');
+  div.className = 'notification success';
+  div.id = 'notif-' + id;
+  div.innerHTML = `
+    <div class="notification-title">✅ ${escapeHtml(title)}</div>
+    <div class="notification-body">${escapeHtml(message)}</div>
+    <div class="notification-actions">
+      <button class="btn-dismiss" onclick="dismissNotification('${id}')">닫기</button>
+    </div>
+  `;
+  container.appendChild(div);
+  setTimeout(() => dismissNotification(id), 8000);
+}
+
+function respondNotification(id, approved) {
+  // Send response back to server
+  fetch('/api/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, approved })
+  });
+  dismissNotification(id);
+  if (approved) {
+    showInfoNotification('승인됨', '다음 단계를 진행합니다.');
+  } else {
+    showInfoNotification('보류', '작업이 보류되었습니다.');
+  }
+}
+
+function dismissNotification(id) {
+  const el = document.getElementById('notif-' + id);
+  if (el) {
+    el.style.animation = 'fadeOut 0.3s ease-out';
+    setTimeout(() => el.remove(), 300);
+  }
 }
 
 // --- Init ---

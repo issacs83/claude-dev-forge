@@ -51,6 +51,27 @@ app.post('/api/events', (req, res) => {
   res.json({ ok: true });
 });
 
+// Get projects
+app.get('/api/projects', (req, res) => {
+  res.json(state.getProjects());
+});
+
+// Create project
+app.post('/api/projects', (req, res) => {
+  const project = state.createProject(req.body);
+  broadcast({ type: 'project_created', data: project });
+  broadcast({ type: 'state_update', data: state.getFullState() });
+  res.json(project);
+});
+
+// Update project
+app.patch('/api/projects/:id', (req, res) => {
+  const project = state.updateProject(req.params.id, req.body);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  broadcast({ type: 'state_update', data: state.getFullState() });
+  res.json(project);
+});
+
 // Create task
 app.post('/api/tasks', (req, res) => {
   const task = state.createTask(req.body);
@@ -66,6 +87,24 @@ app.patch('/api/tasks/:id', (req, res) => {
   broadcast({ type: 'task_updated', data: task });
   broadcast({ type: 'state_update', data: state.getFullState() });
   res.json(task);
+});
+
+// Confirm response (from dashboard UI)
+app.post('/api/confirm', (req, res) => {
+  const { id, approved } = req.body;
+  broadcast({ type: 'confirm_response', data: { id, approved } });
+  res.json({ ok: true });
+});
+
+// Send notification to dashboard (called by project-director / agents)
+app.post('/api/notify', (req, res) => {
+  const notif = req.body;
+  if (notif.confirm) {
+    broadcast({ type: 'agent_confirm', data: notif });
+  } else {
+    broadcast({ type: 'event', data: { type: 'agent_complete', ...notif } });
+  }
+  res.json({ ok: true });
 });
 
 // --- WebSocket ---
@@ -97,6 +136,6 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  TaskForce.AI Dashboard`);
+  console.log(`\n  Jun.AI Dashboard`);
   console.log(`  ● Live on http://localhost:${PORT}\n`);
 });
