@@ -1545,7 +1545,7 @@ server.listen(PORT, '0.0.0.0', () => {
       // Ensure log dir exists
       try { fs.mkdirSync(path.dirname(BRIDGE_LOG), { recursive: true }); } catch(e) {}
 
-      const bridge = exec(`nohup node "${BRIDGE_SCRIPT}" >> "${BRIDGE_LOG}" 2>&1 &`);
+      const bridge = exec(`nohup node --unhandled-rejections=warn "${BRIDGE_SCRIPT}" >> "${BRIDGE_LOG}" 2>&1 &`);
       console.log('  ✓ Telegram bridge started');
     } catch (e) {
       console.error('  ✗ Failed to start telegram bridge:', e.message);

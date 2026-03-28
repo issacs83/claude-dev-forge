@@ -1,8 +1,17 @@
 require('dotenv').config({ path: __dirname + '/.env' });
 
-// Force IPv4 globally — prevents AggregateError from IPv6 failures
+// Force IPv4 globally at every level
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
+// Override dns.lookup to force IPv4
+const origLookup = dns.lookup;
+dns.lookup = function(hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  if (typeof options === 'number') options = { family: options };
+  options = options || {};
+  options.family = 4; // Force IPv4
+  return origLookup.call(dns, hostname, options, callback);
+};
 
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');

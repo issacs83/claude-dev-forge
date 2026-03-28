@@ -40,7 +40,7 @@ sleep 1
 # --- 3. Telegram Bridge ---
 if ! pgrep -f "telegram-bridge.js" > /dev/null 2>&1; then
     cd "$DASHBOARD_DIR"
-    nohup node telegram-bridge.js >> "$LOG_DIR/telegram.log" 2>&1 &
+    nohup node --unhandled-rejections=warn telegram-bridge.js >> "$LOG_DIR/telegram.log" 2>&1 &
     echo $! > "$PID_DIR/telegram.pid"
     echo "[$(date)] Telegram bridge started (PID: $!)" >> "$LOG_DIR/startup.log"
 else
