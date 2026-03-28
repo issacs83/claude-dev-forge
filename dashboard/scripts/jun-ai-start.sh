@@ -1,11 +1,12 @@
 #!/bin/bash
 # Jun.AI Dashboard — Auto-start script
-# Starts: Dashboard (7700) + API Docs (7701) + Telegram Bridge
+# Starts: Dashboard (7700) + API Docs (7701) + Telegram Bridge + Claude Sessions
 # Called by: systemd service or @reboot crontab
 
-DASHBOARD_DIR="/home/issacs/work/claude-dev-forge/dashboard"
+DASHBOARD_DIR="/home/issacs/work/projects/claude-dev-forge/dashboard"
 LOG_DIR="/home/issacs/.jun-ai/logs"
 PID_DIR="/home/issacs/.jun-ai/pids"
+SESSIONS_ROOT="/home/issacs/sessions"
 
 # Create directories
 mkdir -p "$LOG_DIR" "$PID_DIR"
@@ -48,18 +49,12 @@ fi
 
 sleep 2
 
-# --- 4. tmux work 세션 (없으면 생성) ---
-if ! tmux has-session -t work 2>/dev/null; then
-    tmux new-session -d -s work -n claude
-    echo "[$(date)] tmux work session created" >> "$LOG_DIR/startup.log"
-else
-    echo "[$(date)] tmux work session exists" >> "$LOG_DIR/startup.log"
-fi
-
-# --- 5. 프로젝트별 Claude 세션 복원 ---
+# --- 4. Restore independent Claude sessions from state.json ---
 STATE_FILE="$DASHBOARD_DIR/data/state.json"
+CLAUDE_CMD="claude --resume --dangerously-skip-permissions"
+
 if [ -f "$STATE_FILE" ]; then
-    # Read projects with projectDir and sessionName from state.json
+    # Read active projects with projectDir and sessionName
     python3 -c "
 import json
 with open('$STATE_FILE') as f:
@@ -70,12 +65,14 @@ for p in data.get('projects', []):
     if d and s and p.get('status') == 'active':
         print(f'{s}|{d}')
 " 2>/dev/null | while IFS='|' read -r session_name project_dir; do
-        # Check if this tmux window already exists
-        if ! tmux list-windows -t work -F '#{window_name}' 2>/dev/null | grep -q "^${session_name}$"; then
+        # Check if this independent tmux session already exists
+        if ! tmux has-session -t "$session_name" 2>/dev/null; then
             if [ -d "$project_dir" ]; then
-                tmux new-window -t work -n "$session_name" "cd $project_dir && claude --resume --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official"
-                echo "[$(date)] Claude session restored: $session_name → $project_dir" >> "$LOG_DIR/startup.log"
+                tmux new-session -d -s "$session_name" -c "$project_dir" "$CLAUDE_CMD"
+                echo "[$(date)] Claude session created: $session_name → $project_dir" >> "$LOG_DIR/startup.log"
                 sleep 2
+            else
+                echo "[$(date)] WARN: project dir not found: $project_dir" >> "$LOG_DIR/startup.log"
             fi
         else
             echo "[$(date)] Claude session already exists: $session_name" >> "$LOG_DIR/startup.log"
@@ -88,5 +85,12 @@ echo "[$(date)] === Verification ===" >> "$LOG_DIR/startup.log"
 echo "Dashboard: $(lsof -i :7700 -sTCP:LISTEN -t 2>/dev/null && echo OK || echo FAIL)" >> "$LOG_DIR/startup.log"
 echo "API Docs:  $(lsof -i :7701 -sTCP:LISTEN -t 2>/dev/null && echo OK || echo FAIL)" >> "$LOG_DIR/startup.log"
 echo "Telegram:  $(pgrep -f telegram-bridge.js > /dev/null && echo OK || echo FAIL)" >> "$LOG_DIR/startup.log"
-echo "tmux:      $(tmux has-session -t work 2>/dev/null && echo OK || echo FAIL)" >> "$LOG_DIR/startup.log"
+
+# Count Claude sessions
+CLAUDE_SESSIONS=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^jun-' | wc -l)
+echo "Claude sessions: $CLAUDE_SESSIONS" >> "$LOG_DIR/startup.log"
+tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^jun-' | while read s; do
+    echo "  ● $s" >> "$LOG_DIR/startup.log"
+done
+
 echo "[$(date)] Jun.AI startup complete" >> "$LOG_DIR/startup.log"

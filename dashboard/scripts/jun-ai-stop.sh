@@ -19,5 +19,10 @@ kill $(lsof -t -i:7700) 2>/dev/null
 kill $(lsof -t -i:7701) 2>/dev/null
 pkill -f telegram-bridge.js 2>/dev/null
 
+# Kill all jun- Claude sessions
+tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^jun-' | while read s; do
+    tmux kill-session -t "$s" 2>/dev/null && echo "Killed Claude session: $s"
+done
+
 echo "[$(date)] Jun.AI stopped" >> "$LOG_DIR/startup.log"
 echo "All Jun.AI services stopped."

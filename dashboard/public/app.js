@@ -8,7 +8,7 @@ let activePhaseFilter = localStorage.getItem('jun_active_phase') || 'all';
 // --- WebSocket ---
 function connect() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}`);
+  ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
   ws.onopen = () => {
     document.getElementById('liveBadge').className = 'live-badge';
@@ -286,6 +286,7 @@ function renderCard(task) {
     <div class="task-card ${isWorking ? 'working' : ''}" data-id="${task.id}" draggable="true">
       <div class="card-top">
         <span class="card-title">${escapeHtml(task.title)}</span>
+        ${task.approval && task.approval.status === 'pending' ? '<span style="background:var(--accent-orange);color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;animation:chatBadgePulse 1.5s infinite">결재대기</span>' : ''}
         <span class="priority-badge ${priorityClass}">${capitalize(task.priority || 'medium')}</span>
       </div>
       <span class="role-badge ${roleClass}">${assignee || task.role || 'unassigned'}</span>
@@ -315,18 +316,7 @@ let _isDragging = false;
   const board = document.getElementById('kanbanBoard');
   if (!board) { setTimeout(initDragAndDrop, 200); return; }
 
-  // Dragstart
-  board.addEventListener('dragstart', (e) => {
-    const card = e.target.closest('.task-card');
-    if (!card) return;
-    _draggedTaskId = card.dataset.id;
-    _isDragging = true;
-    card.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', _draggedTaskId);
-  });
-
-  // Dragend
+  // Dragend (desktop)
   board.addEventListener('dragend', (e) => {
     const card = e.target.closest('.task-card');
     if (card) card.classList.remove('dragging');
@@ -407,8 +397,58 @@ let _isDragging = false;
     openTaskDetail(taskId);
   });
 
+  // --- Dragstart (desktop only) ---
+  board.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('.task-card');
+    if (!card) return;
+    _draggedTaskId = card.dataset.id;
+    _isDragging = true;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _draggedTaskId);
+  });
+
   console.log('Jun.AI: Drag-and-drop + click initialized');
 })();
+
+// Mobile: show status move modal on long-press
+function showMobileMoveModal(taskId) {
+  const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
+  if (!task) return;
+
+  const statuses = [
+    { key: 'todo', label: '📋 To Do', color: '#64748b' },
+    { key: 'hold', label: '⏸ Hold', color: '#8b5cf6' },
+    { key: 'claimed', label: '👋 Claimed', color: '#f59e0b' },
+    { key: 'in_progress', label: '🔄 In Progress', color: '#3b82f6' },
+    { key: 'review', label: '🔍 Review', color: '#a855f7' },
+    { key: 'done', label: '✅ Done', color: '#22c55e' }
+  ];
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:2000;display:flex;align-items:flex-end;justify-content:center';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  modal.innerHTML = `
+    <div style="width:100%;max-width:400px;background:var(--bg-secondary);border-radius:16px 16px 0 0;padding:20px;padding-bottom:max(20px,env(safe-area-inset-bottom))">
+      <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;color:var(--text-primary)">${escapeHtml(task.title)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">이동할 상태를 선택하세요</div>
+      ${statuses.map(s => `
+        <button onclick="moveTask('${taskId}','${s.key}');this.closest('div[style*=fixed]').remove()"
+          style="display:block;width:100%;padding:14px;margin-bottom:8px;background:${s.key === task.status ? 'rgba(59,130,246,0.15)' : 'var(--bg-primary)'};color:var(--text-primary);border:1px solid ${s.key === task.status ? 'var(--accent-blue)' : 'var(--border)'};border-radius:10px;font-size:15px;text-align:left;cursor:pointer">
+          ${s.label} ${s.key === task.status ? '← 현재' : ''}
+        </button>
+      `).join('')}
+      <button onclick="this.closest('div[style*=fixed]').remove();openTaskDetail('${taskId}')"
+        style="display:block;width:100%;padding:14px;margin-top:4px;background:none;color:var(--accent-blue);border:1px solid var(--accent-blue);border-radius:10px;font-size:14px;cursor:pointer">
+        상세 보기
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
 
 async function moveTask(taskId, newStatus) {
   const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
@@ -721,6 +761,21 @@ async function openTaskDetail(taskId) {
         </div>
       </div>
 
+      ${task.approval && task.approval.status === 'pending' ? `
+      <div style="margin:12px 0;padding:12px;background:rgba(249,175,79,0.1);border:1px solid var(--accent-orange);border-radius:8px">
+        <div style="font-weight:600;color:var(--accent-orange);margin-bottom:8px">📋 결재 요청</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">${escapeHtml(task.approval.summary || '')}</div>
+        ${(task.approval.deliverables || []).map(d => `<div style="font-size:12px;color:var(--text-muted)">  📄 ${escapeHtml(d)}</div>`).join('')}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button onclick="approveTask('${taskId}')" style="flex:1;padding:8px;background:var(--accent-green,#91b362);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600">✅ 승인</button>
+          <button onclick="rejectTask('${taskId}')" style="flex:1;padding:8px;background:var(--accent-red,#e74c3c);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600">❌ 반려</button>
+        </div>
+      </div>` : ''}
+      ${task.approval && task.approval.status === 'approved' ? `
+      <div style="margin:12px 0;padding:8px 12px;background:rgba(145,179,98,0.1);border-left:3px solid var(--accent-green,#91b362);border-radius:4px;font-size:12px;color:var(--accent-green,#91b362)">✅ 결재 승인됨 (${new Date(task.approval.respondedAt).toLocaleString('ko-KR')})</div>` : ''}
+      ${task.approval && task.approval.status === 'rejected' ? `
+      <div style="margin:12px 0;padding:8px 12px;background:rgba(231,76,60,0.1);border-left:3px solid var(--accent-red,#e74c3c);border-radius:4px;font-size:12px;color:var(--accent-red,#e74c3c)">❌ 결재 반려 — ${escapeHtml(task.approval.rejectReason || '')} (${new Date(task.approval.respondedAt).toLocaleString('ko-KR')})</div>` : ''}
+
       <div style="margin:12px 0">
         <label>담당 에이전트:</label>
         ${agentInfo}
@@ -784,6 +839,26 @@ async function changeTaskStatus(taskId, newStatus) {
   });
   document.querySelector('.task-modal-overlay')?.remove();
   fetchAndRender();
+}
+
+async function approveTask(taskId) {
+  await fetch('/api/tasks/' + taskId + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  document.querySelector('.task-modal-overlay')?.remove();
+  fetchAndRender();
+  showInfoNotification('결재', '승인되었습니다. 다음 단계로 진행합니다.');
+}
+
+async function rejectTask(taskId) {
+  const reason = prompt('반려 사유를 입력하세요:');
+  if (reason === null) return; // cancelled
+  await fetch('/api/tasks/' + taskId + '/reject', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason || '사유 미기재' })
+  });
+  document.querySelector('.task-modal-overlay')?.remove();
+  fetchAndRender();
+  showInfoNotification('결재', '반려되었습니다. 재작업을 시작합니다.');
 }
 
 async function changeTaskAgent(taskId, agent) {
@@ -1256,7 +1331,46 @@ async function createTask() {
   hideNewTaskModal();
 }
 
-function showNewProjectModal() { document.getElementById('newProjectModal').style.display = 'flex'; }
+function showNewProjectModal() {
+  document.getElementById('newProjectModal').style.display = 'flex';
+  // Update telegram bot suggestion when project name changes
+  const nameInput = document.getElementById('setupProjectName');
+  const suggest = document.getElementById('telegramBotSuggestion');
+  const updateSuggestion = () => {
+    const n = nameInput.value.trim().replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20);
+    if (n) {
+      suggest.textContent = `새 봇 추천 이름: @JunAI_${n}_bot`;
+    } else {
+      suggest.textContent = '';
+    }
+  };
+  nameInput.addEventListener('input', updateSuggestion);
+  updateSuggestion();
+
+  // Load existing telegram tokens
+  loadExistingTelegramTokens();
+}
+
+async function loadExistingTelegramTokens() {
+  try {
+    const res = await fetch('/api/telegram/detect');
+    const tokens = await res.json();
+    const sel = document.getElementById('setupTelegramExisting');
+    sel.innerHTML = '<option value="">기존 토큰 선택...</option>';
+    if (tokens.length === 0) {
+      sel.innerHTML += '<option value="" disabled>감지된 토큰 없음</option>';
+    }
+    tokens.forEach(t => {
+      sel.innerHTML += `<option value="${t.token}">${t.label} (${t.masked})</option>`;
+    });
+  } catch (e) {}
+}
+
+function onTelegramSelect(sel) {
+  if (sel.value) {
+    document.getElementById('setupTelegramToken').value = sel.value;
+  }
+}
 function hideNewProjectModal() { document.getElementById('newProjectModal').style.display = 'none'; }
 
 async function setupProject() {
@@ -1295,24 +1409,38 @@ async function setupProject() {
   // Auto-start Claude session if checked
   const autoSession = document.getElementById('setupAutoSession');
   const projectPath = document.getElementById('setupProjectPath').value.trim();
+  const telegramToken = document.getElementById('setupTelegramToken').value.trim();
   if (autoSession && autoSession.checked && data.project) {
     await fetch('/api/sessions/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         projectName: name,
-        projectPath: projectPath || '/home/issacs/work',
-        projectId: data.project.id
+        projectId: data.project.id,
+        ...(projectPath && { projectPath })
       })
     });
   }
 
+  // Save telegram token if provided
+  let telegramMsg = '';
+  if (telegramToken && data.project) {
+    const tgRes = await fetch('/api/telegram/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: data.project.id, token: telegramToken })
+    });
+    const tgData = await tgRes.json();
+    telegramMsg = tgData.ok ? ' + Telegram 연동됨' : '';
+  }
+  document.getElementById('setupTelegramToken').value = '';
+
   // Show success banner
-  const sessionMsg = (autoSession && autoSession.checked) ? ' + Claude 세션 시작됨' : '';
+  const sessionMsg = (autoSession && autoSession.checked) ? ' + Claude 독립 세션 시작됨' : '';
   const banner = document.createElement('div');
   banner.className = 'setup-banner';
   banner.innerHTML = `
-    <span class="text">✅ "${escapeHtml(name)}" 프로젝트 셋업 완료 — ${data.tasks ? data.tasks.length : 0}개 PDLC 태스크 생성됨 (${domain})${sessionMsg}</span>
+    <span class="text">✅ "${escapeHtml(name)}" 프로젝트 셋업 완료 — ${data.tasks ? data.tasks.length : 0}개 PDLC 태스크 생성됨 (${domain})${sessionMsg}${telegramMsg}</span>
     <button class="dismiss" onclick="this.parentElement.remove()">×</button>
   `;
   const board = document.getElementById('kanbanBoard');
@@ -1841,6 +1969,7 @@ function toggleChat() {
   const panel = document.getElementById('chatPanel');
   panel.style.display = _chatOpen ? 'flex' : 'none';
   if (_chatOpen) {
+    stopChatBlink();
     loadChatHistory();
     updateChatConnStatus();
     // Restore input + attachments
@@ -2200,15 +2329,78 @@ function handleChatFile(input) {
   input.value = '';
 }
 
+// --- Chat Notification Sound ---
+let _chatNotifAudio = null;
+function playChatNotifSound() {
+  if (!_chatNotifAudio) {
+    // Generate a pleasant notification tone using Web Audio API
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const play = () => {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(830, ctx.currentTime);
+        osc1.frequency.setValueAtTime(990, ctx.currentTime + 0.1);
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(630, ctx.currentTime + 0.15);
+        osc2.frequency.setValueAtTime(830, ctx.currentTime + 0.25);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+        osc1.connect(gain); osc2.connect(gain); gain.connect(ctx.destination);
+        osc1.start(ctx.currentTime); osc1.stop(ctx.currentTime + 0.15);
+        osc2.start(ctx.currentTime + 0.15); osc2.stop(ctx.currentTime + 0.4);
+      };
+      _chatNotifAudio = play;
+      play();
+    } catch(e) {}
+  } else {
+    _chatNotifAudio();
+  }
+}
+
+let _chatBlinkInterval = null;
+let _chatUnreadCount = 0;
+
+function startChatBlink() {
+  const btn = document.getElementById('chatToggle');
+  if (!btn || _chatBlinkInterval) return;
+  _chatUnreadCount++;
+  btn.setAttribute('data-unread', _chatUnreadCount);
+  _chatBlinkInterval = setInterval(() => {
+    btn.style.transform = btn.style.transform === 'scale(1.2)' ? 'scale(1)' : 'scale(1.2)';
+    btn.style.background = btn.style.background === 'var(--accent-red, #e74c3c)' ? 'var(--accent-blue)' : 'var(--accent-red, #e74c3c)';
+  }, 500);
+}
+
+function stopChatBlink() {
+  const btn = document.getElementById('chatToggle');
+  if (_chatBlinkInterval) { clearInterval(_chatBlinkInterval); _chatBlinkInterval = null; }
+  if (btn) {
+    btn.style.transform = 'scale(1)';
+    btn.style.background = 'var(--accent-blue)';
+    btn.removeAttribute('data-unread');
+  }
+  _chatUnreadCount = 0;
+}
+
 // WebSocket: listen for chat messages
 function handleChatWS(msg) {
-  if (msg.type === 'chat_message' && _chatOpen) {
-    // Hide typing indicator when response arrives
+  if (msg.type !== 'chat_message') return;
+  const isAgentResponse = msg.data && msg.data.message && msg.data.message.from !== 'user';
+
+  if (_chatOpen) {
+    // Chat is open → update messages + hide typing
     const typingEl = document.getElementById('chatTyping');
-    if (typingEl && msg.data && msg.data.message && msg.data.message.from !== 'user') {
+    if (typingEl && isAgentResponse) {
       typingEl.style.display = 'none';
     }
     loadChatHistory();
+  } else if (isAgentResponse) {
+    // Chat is closed + agent responded → blink + sound
+    startChatBlink();
+    playChatNotifSound();
   }
 }
 
@@ -2275,41 +2467,143 @@ async function stopSession(windowName) {
 // Refresh sessions every 5s
 setInterval(renderSessions, 5000);
 
-// --- Terminal Viewer ---
-let autoRefreshTerminal = null;
+// --- Interactive Terminal (xterm.js) ---
+let term = null;
+let termWs = null;
+let fitAddon = null;
+let termExpanded = false;
 
-async function loadTerminalOutput() {
+function initTerminal() {
+  if (term) return;
+  const container = document.getElementById('terminalContainer');
+  term = new Terminal({
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+    theme: {
+      background: '#0a0e14',
+      foreground: '#b3b1ad',
+      cursor: '#e6b450',
+      selectionBackground: '#253340',
+      black: '#01060e', red: '#ea6c73', green: '#91b362', yellow: '#f9af4f',
+      blue: '#53bdfa', magenta: '#fae994', cyan: '#90e1c6', white: '#c7c7c7',
+    },
+    scrollback: 5000,
+    convertEol: true,
+  });
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  try { term.loadAddon(new WebLinksAddon.WebLinksAddon()); } catch(e) {}
+  term.open(container);
+  fitAddon.fit();
+  term.writeln('\x1b[90m  Select a session to connect...\x1b[0m');
+
+  // Auto-fit on resize
+  window.addEventListener('resize', () => { if (fitAddon) fitAddon.fit(); });
+  new ResizeObserver(() => { if (fitAddon) fitAddon.fit(); }).observe(container);
+}
+
+function connectTerminal() {
   const sel = document.getElementById('terminalSessionSelect');
-  const name = sel.value;
-  const output = document.getElementById('terminalOutput');
-  if (!name) {
-    output.textContent = 'Select a session to view terminal output.';
-    if (autoRefreshTerminal) { clearInterval(autoRefreshTerminal); autoRefreshTerminal = null; }
-    return;
-  }
-  try {
-    const res = await fetch('/api/sessions/' + encodeURIComponent(name) + '/output');
-    const data = await res.json();
-    output.textContent = data.output || '(empty)';
-    output.scrollTop = output.scrollHeight;
-  } catch (e) {
-    output.textContent = 'Failed to load output.';
+  const sessionName = sel.value;
+  const statusEl = document.getElementById('terminalStatus');
+  if (!sessionName) { disconnectTerminal(); return; }
+
+  // Initialize terminal if needed
+  initTerminal();
+
+  // Disconnect previous
+  if (termWs) { termWs.close(); termWs = null; }
+  term.clear();
+  term.writeln(`\x1b[90m  Connecting to ${sessionName}...\x1b[0m`);
+  statusEl.textContent = 'connecting...';
+  statusEl.style.color = 'var(--accent-orange)';
+
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  termWs = new WebSocket(`${protocol}//${location.host}/ws/terminal?session=${encodeURIComponent(sessionName)}`);
+
+  termWs.onopen = () => {
+    statusEl.textContent = '● connected';
+    statusEl.style.color = 'var(--accent-green, #91b362)';
+    term.clear();
+    fitAddon.fit();
+    // Send initial size
+    termWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    // Focus terminal
+    term.focus();
+  };
+
+  termWs.onmessage = (e) => {
+    term.write(e.data);
+  };
+
+  termWs.onclose = () => {
+    statusEl.textContent = '○ disconnected';
+    statusEl.style.color = 'var(--text-muted)';
+    term.writeln('\r\n\x1b[90m  Session disconnected.\x1b[0m');
+    termWs = null;
+  };
+
+  termWs.onerror = () => {
+    statusEl.textContent = '✕ error';
+    statusEl.style.color = 'var(--accent-red, #ea6c73)';
+  };
+
+  // Send terminal input to WebSocket
+  term.onData((data) => {
+    if (termWs && termWs.readyState === WebSocket.OPEN) {
+      termWs.send(data);
+    }
+  });
+
+  // Send resize events
+  term.onResize(({ cols, rows }) => {
+    if (termWs && termWs.readyState === WebSocket.OPEN) {
+      termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+    }
+  });
+}
+
+function disconnectTerminal() {
+  if (termWs) { termWs.close(); termWs = null; }
+  if (term) { term.clear(); term.writeln('\x1b[90m  Select a session to connect...\x1b[0m'); }
+  const statusEl = document.getElementById('terminalStatus');
+  if (statusEl) { statusEl.textContent = ''; }
+  const sel = document.getElementById('terminalSessionSelect');
+  if (sel) sel.value = '';
+}
+
+function toggleTerminalExpand() {
+  const container = document.getElementById('terminalContainer');
+  const panel = document.getElementById('terminalPanel');
+  const btn = document.getElementById('terminalExpandBtn');
+  termExpanded = !termExpanded;
+
+  if (termExpanded) {
+    panel.style.position = 'fixed';
+    panel.style.top = '60px';
+    panel.style.left = '16px';
+    panel.style.right = '16px';
+    panel.style.bottom = '16px';
+    panel.style.zIndex = '999';
+    panel.style.margin = '0';
+    container.style.height = 'calc(100% - 40px)';
+    btn.textContent = '⛶';
+    btn.title = 'Shrink';
+  } else {
+    panel.style.position = '';
+    panel.style.top = '';
+    panel.style.left = '';
+    panel.style.right = '';
+    panel.style.bottom = '';
+    panel.style.zIndex = '';
+    panel.style.margin = '';
+    container.style.height = '350px';
+    btn.textContent = '⛶';
+    btn.title = 'Expand';
   }
 
-  // Auto-refresh every 3s while a session is selected
-  if (autoRefreshTerminal) clearInterval(autoRefreshTerminal);
-  autoRefreshTerminal = setInterval(async () => {
-    const currentName = document.getElementById('terminalSessionSelect').value;
-    if (!currentName) { clearInterval(autoRefreshTerminal); autoRefreshTerminal = null; return; }
-    try {
-      const res = await fetch('/api/sessions/' + encodeURIComponent(currentName) + '/output');
-      const data = await res.json();
-      const el = document.getElementById('terminalOutput');
-      const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-      el.textContent = data.output || '(empty)';
-      if (wasAtBottom) el.scrollTop = el.scrollHeight;
-    } catch (e) { /* ignore */ }
-  }, 3000);
+  if (fitAddon) setTimeout(() => fitAddon.fit(), 100);
 }
 
 // Update terminal session dropdown when sessions change

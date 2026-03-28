@@ -3,13 +3,90 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const { StateManager } = require('./lib/state');
+const { execSync, exec } = require('child_process');
 
 const fs = require('fs');
 const PORT = process.env.DASHBOARD_PORT || 7700;
 const DATA_FILE = path.join(__dirname, 'data', 'state.json');
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const pty = require('node-pty');
+
+// --- WebSocket routing (noServer mode for multiple paths) ---
+const wss = new WebSocket.Server({ noServer: true });
+const termWss = new WebSocket.Server({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  if (pathname === '/ws/terminal') {
+    termWss.handleUpgrade(request, socket, head, (ws) => {
+      termWss.emit('connection', ws, request);
+    });
+  } else {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  }
+});
+const activePtys = new Map(); // ws → ptyProcess
+
+termWss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const sessionName = url.searchParams.get('session');
+  if (!sessionName || !sessionName.startsWith('jun-')) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Invalid session name' }));
+    ws.close();
+    return;
+  }
+
+  // Check if tmux session exists
+  try {
+    execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`);
+  } catch (e) {
+    ws.send(JSON.stringify({ type: 'error', message: `Session "${sessionName}" not found` }));
+    ws.close();
+    return;
+  }
+
+  // Spawn tmux attach as a PTY
+  const shell = pty.spawn('tmux', ['attach-session', '-t', sessionName], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 30,
+    cwd: process.env.HOME,
+    env: { ...process.env, TERM: 'xterm-256color' }
+  });
+
+  activePtys.set(ws, shell);
+
+  shell.onData((data) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
+    }
+  });
+
+  shell.onExit(() => {
+    activePtys.delete(ws);
+    if (ws.readyState === WebSocket.OPEN) ws.close();
+  });
+
+  ws.on('message', (raw) => {
+    const msg = raw.toString();
+    try {
+      const parsed = JSON.parse(msg);
+      if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
+        shell.resize(parsed.cols, parsed.rows);
+        return;
+      }
+    } catch (e) { /* not JSON, treat as terminal input */ }
+    shell.write(msg);
+  });
+
+  ws.on('close', () => {
+    const p = activePtys.get(ws);
+    if (p) { p.kill(); activePtys.delete(ws); }
+  });
+});
 const state = new StateManager();
 
 // Load persisted state on startup
@@ -106,6 +183,25 @@ setInterval(() => {
     }
   });
 
+  // --- Zombie Agent Cleanup ---
+  // Running agents with no matching in_progress task and no progress for 10 min → auto-complete
+  const AGENT_ZOMBIE_MS = 10 * 60 * 1000;
+  Object.entries(agents).forEach(([name, agent]) => {
+    if (agent.status !== 'running') return;
+    const startedAt = new Date(agent.startedAt || 0).getTime();
+    const elapsed = now - startedAt;
+    const hasActiveTask = tasks.some(t => t.agent === name && t.status === 'in_progress');
+
+    if (!hasActiveTask && elapsed > AGENT_ZOMBIE_MS && (agent.progress || 0) === 0) {
+      agent.status = 'completed';
+      agent.progress = 100;
+      agent.completedAt = new Date().toISOString();
+      agent._zombieCleanup = true;
+      broadcast({ type: 'state_update', data: state.getFullState() });
+      saveState();
+    }
+  });
+
   // --- Team Lead (project-director) auto-management ---
   // Auto-mark tasks done when agent is completed
   tasks.forEach(task => {
@@ -130,12 +226,13 @@ setInterval(() => {
 
   pending.forEach(pm => {
     try {
-      const paneContent = execSync(`tmux capture-pane -t work:${pm.windowName} -p -S -3 2>/dev/null`, { encoding: 'utf-8' });
+      const sessionTarget = pm.sessionName || pm.windowName;
+      const paneContent = execSync(`tmux capture-pane -t "${sessionTarget}" -p -S -3 2>/dev/null`, { encoding: 'utf-8' });
       const isIdle = paneContent.includes('❯') || paneContent.includes('> ') || paneContent.trim().endsWith('>');
       if (isIdle) {
         const instruction = `[Jun.AI 대기 메시지] ${pm.message}. 응답은 curl -s -X POST http://58.29.21.11:7700/api/chat/${pm.projectId} -H 'Content-Type: application/json' -d '{"from":"project-director","message":"응답"}' 으로 보내주세요.`;
         const escaped = instruction.replace(/"/g, '\\"');
-        exec(`tmux send-keys -t work:${pm.windowName} "${escaped}" Enter`);
+        exec(`tmux send-keys -t "${sessionTarget}" "${escaped}" Enter`);
 
         // Notify user
         const chatFile = path.join(CHAT_DIR, `project-${pm.projectId}.json`);
@@ -162,6 +259,15 @@ setInterval(() => {
 // Save on process exit
 process.on('SIGINT', () => { state.save(DATA_FILE); process.exit(0); });
 process.on('SIGTERM', () => { state.save(DATA_FILE); process.exit(0); });
+
+// Prevent crash on uncaught errors
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT]', err.message);
+  state.save(DATA_FILE);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[UNHANDLED]', err);
+});
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -371,6 +477,10 @@ app.post('/api/events', (req, res) => {
     state.addNotification('success', `Phase ${event.phase} 완료`, '');
   } else if (event.type === 'document_created') {
     state.addNotification('info', '산출물 생성', event.file || '');
+    // Auto-convert .md → .docx
+    if (event.file && event.file.endsWith('.md') && event.format === 'md') {
+      autoConvertMdToDocx(event.file);
+    }
   }
 
   broadcast({ type: 'event', data: event });
@@ -413,11 +523,43 @@ app.post('/api/tasks', (req, res) => {
 
 // Update task
 app.patch('/api/tasks/:id', (req, res) => {
+  const oldTask = state.getTask(req.params.id);
+  const oldStatus = oldTask ? oldTask.status : null;
   const task = state.updateTask(req.params.id, req.body);
   if (!task) return res.status(404).json({ error: 'Task not found' });
   broadcast({ type: 'task_updated', data: task });
   broadcast({ type: 'state_update', data: state.getFullState() });
   saveState();
+
+  // Auto-dispatch: when task moves to in_progress → send to Claude session
+  if (req.body.status === 'in_progress' && oldStatus !== 'in_progress' && task.project) {
+    const project = state.getProjects().find(p => p.id === task.project);
+    if (project && project.sessionName) {
+      try {
+        // Check session exists
+        const allSessions = execSync('tmux list-sessions -F "#{session_name}" 2>/dev/null', { encoding: 'utf-8' });
+        if (allSessions.trim().split('\n').includes(project.sessionName)) {
+          const agentInfo = task.agent ? `담당 에이전트: ${task.agent}` : '에이전트 미배정';
+          const objective = task.objective ? `\n목표: ${task.objective}` : '';
+          const instruction = `[Jun.AI 태스크 디스패치] "${task.title}" 가 In Progress로 이동되었습니다. ${agentInfo}${objective}\n이 태스크를 즉시 수행하세요. 진행 상황은 curl -s -X POST http://58.29.21.11:7700/api/events -H 'Content-Type: application/json' -d '{"type":"agent_progress","agent":"${task.agent || 'project-director'}","progress":50,"message":"진행내용"}' 으로 보고하세요. 완료 시 agent_complete 이벤트를 보내세요.`;
+          const escaped = instruction.replace(/"/g, '\\"');
+          exec(`tmux send-keys -t "${project.sessionName}" "${escaped}" Enter`);
+
+          // Also report agent_start event
+          state.processEvent({
+            type: 'agent_start',
+            agent: task.agent || 'project-director',
+            phase: task.phase,
+            task: task.title,
+            timestamp: new Date().toISOString()
+          });
+          broadcast({ type: 'state_update', data: state.getFullState() });
+          saveState();
+        }
+      } catch (e) { /* ignore tmux errors */ }
+    }
+  }
+
   res.json(task);
 });
 
@@ -528,6 +670,139 @@ app.delete('/api/projects/:id', (req, res) => {
   res.json({ ok: true, deleted: project.name, message: '삭제됨. 복구: GET /api/backups → POST /api/restore' });
 });
 
+// --- Approval System (결재) ---
+
+// Request approval for a task
+app.post('/api/tasks/:id/approval', (req, res) => {
+  const task = state.getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  const { summary, deliverables } = req.body;
+
+  task.approval = {
+    status: 'pending', // pending | approved | rejected
+    summary: summary || '',
+    deliverables: deliverables || [],
+    requestedAt: new Date().toISOString(),
+    respondedAt: null,
+    rejectReason: null
+  };
+  task.updatedAt = new Date().toISOString();
+  state._addHistory(task.id, 'approval_requested', `결재 요청: ${summary || task.title}`);
+  saveState();
+
+  broadcast({ type: 'approval_request', data: { taskId: task.id, task } });
+  broadcast({ type: 'state_update', data: state.getFullState() });
+
+  // Send telegram notification with approve/reject buttons
+  try {
+    const TELEGRAM_USERS_FILE = path.join(__dirname, 'data', 'telegram-users.json');
+    const botToken = (() => { try { const env = fs.readFileSync(path.join(__dirname, '.env'), 'utf-8'); const m = env.match(/TELEGRAM_BOT_TOKEN=(.+)/); return m ? m[1].trim() : null; } catch(e) { return null; } })();
+    if (botToken && fs.existsSync(TELEGRAM_USERS_FILE)) {
+      const tgUsers = JSON.parse(fs.readFileSync(TELEGRAM_USERS_FILE, 'utf-8'));
+      const project = state.getProjects().find(p => p.id === task.project);
+      const projectName = project ? project.name : 'Unknown';
+      const delivList = (deliverables || []).map(d => `  - ${d}`).join('\n') || '  (없음)';
+      const tgMessage = `📋 [결재요청] ${projectName}\n\n${task.title}\n\n${summary || ''}\n\n산출물:\n${delivList}`;
+      const keyboard = JSON.stringify({
+        inline_keyboard: [
+          [
+            { text: '✅ 승인', callback_data: `approve_${task.id}` },
+            { text: '❌ 반려', callback_data: `reject_${task.id}` }
+          ]
+        ]
+      });
+
+      Object.keys(tgUsers).forEach(chatId => {
+        const https = require('https');
+        const payload = JSON.stringify({ chat_id: chatId, text: tgMessage, reply_markup: JSON.parse(keyboard) });
+        const tgReq = https.request({
+          hostname: 'api.telegram.org',
+          path: `/bot${botToken}/sendMessage`,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+        });
+        tgReq.write(payload);
+        tgReq.end();
+      });
+    }
+  } catch (e) { /* ignore telegram errors */ }
+
+  res.json({ ok: true, approval: task.approval });
+});
+
+// Approve a task
+app.post('/api/tasks/:id/approve', (req, res) => {
+  const task = state.getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+
+  task.approval = task.approval || {};
+  task.approval.status = 'approved';
+  task.approval.respondedAt = new Date().toISOString();
+  task.updatedAt = new Date().toISOString();
+  state._addHistory(task.id, 'approval_approved', '결재 승인됨');
+  saveState();
+
+  broadcast({ type: 'approval_response', data: { taskId: task.id, status: 'approved' } });
+  broadcast({ type: 'state_update', data: state.getFullState() });
+
+  // Notify Claude session to proceed
+  const project = state.getProjects().find(p => p.id === task.project);
+  if (project && project.sessionName) {
+    const instruction = `[Jun.AI 결재] "${task.title}" 이 승인되었습니다. 다음 Phase로 진행하세요.`;
+    exec(`tmux send-keys -t "${project.sessionName}" "${instruction.replace(/"/g, '\\"')}" Enter`);
+  }
+
+  // Notify via chat
+  if (task.project) {
+    const chatFile = path.join(__dirname, 'data', 'chat', `project-${task.project}.json`);
+    let msgs = [];
+    try { if (fs.existsSync(chatFile)) msgs = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
+    msgs.push({ id: String(Date.now()), from: 'system', message: `✅ "${task.title}" 결재 승인됨. 다음 단계로 진행합니다.`, type: 'text', fileName: null, fileUrl: null, timestamp: new Date().toISOString() });
+    fs.writeFileSync(chatFile, JSON.stringify(msgs, null, 2), 'utf-8');
+    broadcast({ type: 'chat_message', data: { projectId: task.project, message: msgs[msgs.length - 1], notify: true } });
+  }
+
+  res.json({ ok: true, status: 'approved' });
+});
+
+// Reject a task
+app.post('/api/tasks/:id/reject', (req, res) => {
+  const task = state.getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  const { reason } = req.body;
+
+  task.approval = task.approval || {};
+  task.approval.status = 'rejected';
+  task.approval.rejectReason = reason || '사유 미기재';
+  task.approval.respondedAt = new Date().toISOString();
+  task.status = 'in_progress'; // back to in_progress for rework
+  task.updatedAt = new Date().toISOString();
+  state._addHistory(task.id, 'approval_rejected', `결재 반려: ${reason || '사유 미기재'}`);
+  saveState();
+
+  broadcast({ type: 'approval_response', data: { taskId: task.id, status: 'rejected', reason } });
+  broadcast({ type: 'state_update', data: state.getFullState() });
+
+  // Notify Claude session to rework
+  const project = state.getProjects().find(p => p.id === task.project);
+  if (project && project.sessionName) {
+    const instruction = `[Jun.AI 결재반려] "${task.title}" 이 반려되었습니다. 반려 사유: ${reason || '사유 미기재'}. 사유를 반영하여 재작업하고 다시 결재를 요청하세요.`;
+    exec(`tmux send-keys -t "${project.sessionName}" "${instruction.replace(/"/g, '\\"')}" Enter`);
+  }
+
+  // Notify via chat
+  if (task.project) {
+    const chatFile = path.join(__dirname, 'data', 'chat', `project-${task.project}.json`);
+    let msgs = [];
+    try { if (fs.existsSync(chatFile)) msgs = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
+    msgs.push({ id: String(Date.now()), from: 'system', message: `❌ "${task.title}" 결재 반려됨.\n사유: ${reason || '사유 미기재'}\n재작업을 시작합니다.`, type: 'text', fileName: null, fileUrl: null, timestamp: new Date().toISOString() });
+    fs.writeFileSync(chatFile, JSON.stringify(msgs, null, 2), 'utf-8');
+    broadcast({ type: 'chat_message', data: { projectId: task.project, message: msgs[msgs.length - 1], notify: true } });
+  }
+
+  res.json({ ok: true, status: 'rejected' });
+});
+
 // Get task detail
 app.get('/api/tasks/:id', (req, res) => {
   const task = state.getTask(req.params.id);
@@ -560,26 +835,26 @@ app.post('/api/tasks/:id/comments', (req, res) => {
   broadcast({ type: 'task_comment', data: { taskId: req.params.id, comment } });
   broadcast({ type: 'state_update', data: state.getFullState() });
 
-  // If from user → forward to Claude tmux session
+  // If from user → forward to Claude independent tmux session with response instructions
   if ((from || 'user') === 'user') {
     const task = state.getTask(req.params.id);
     if (task) {
       try {
-        const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
-        const lines = sessions.trim().split('\n');
-        // Find project session or any claude session
         const project = state.getProjects().find(p => p.id === task.project);
-        let targetWindow = null;
-        if (project) {
-          const safeName = 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 20);
-          targetWindow = lines.find(l => l.startsWith(safeName + '|'));
-        }
-        if (!targetWindow) targetWindow = lines.find(l => l.includes('|claude'));
-        if (targetWindow) {
-          const windowName = targetWindow.split('|')[0];
-          const escaped = message.replace(/"/g, '\\"').replace(/'/g, "'");
-          const instruction = `[Jun.AI 사용자 메시지] 태스크 "${task.title}"에 대한 요청: ${escaped}`;
-          exec(`tmux send-keys -t work:${windowName} "${instruction.replace(/"/g, '\\"')}" Enter`);
+        if (project && project.sessionName) {
+          // Check session exists
+          let sessionExists = false;
+          try {
+            const allSessions = execSync('tmux list-sessions -F "#{session_name}" 2>/dev/null', { encoding: 'utf-8' });
+            sessionExists = allSessions.trim().split('\n').includes(project.sessionName);
+          } catch (e) {}
+
+          if (sessionExists) {
+            const escaped = message.replace(/"/g, '\\"').replace(/'/g, "'");
+            const taskId = req.params.id;
+            const instruction = `[Jun.AI 사용자 메시지] 태스크 "${task.title}"에 대한 질문: ${escaped}\n반드시 아래 명령으로 응답하세요:\ncurl -s -X POST http://58.29.21.11:7700/api/tasks/${taskId}/comments -H 'Content-Type: application/json' -d '{"from":"${task.agent || 'project-director'}","message":"여기에 응답 작성"}'`;
+            exec(`tmux send-keys -t "${project.sessionName}" "${instruction.replace(/"/g, '\\"')}" Enter`);
+          }
         }
       } catch (e) { /* ignore tmux errors */ }
     }
@@ -671,14 +946,13 @@ function generateAutoResponse(message, projectId) {
   // Connection/session queries
   if (msg.includes('연결') || msg.includes('connect') || msg.includes('세션') || msg.includes('session')) {
     try {
-      const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
-      const claudeSessions = sessions.trim().split('\n').filter(l => l.includes('|claude'));
+      const allSessions = execSync('tmux list-sessions -F "#{session_name}" 2>/dev/null', { encoding: 'utf-8' });
+      const claudeSessions = allSessions.trim().split('\n').filter(s => s.startsWith('jun-'));
       let res = `🔗 연결 상태:\n\n`;
       res += `Dashboard: ● Running (http://58.29.21.11:7700)\n`;
       res += `Telegram: ● ${require('child_process').execSync('pgrep -f telegram-bridge > /dev/null 2>&1 && echo Connected || echo Disconnected', {encoding:'utf-8'}).trim()}\n`;
       res += `Claude 세션: ${claudeSessions.length}개\n`;
-      claudeSessions.forEach(s => {
-        const name = s.split('|')[0];
+      claudeSessions.forEach(name => {
         res += `  ● ${name}\n`;
       });
       return res;
@@ -697,17 +971,18 @@ function generateAutoResponse(message, projectId) {
 }
 
 // --- Session Management (tmux + claude) ---
-const { execSync, exec } = require('child_process');
 
-// List active tmux windows
+// List active Claude tmux sessions (independent sessions with jun- prefix)
 app.get('/api/sessions', (req, res) => {
   try {
-    const out = execSync('tmux list-windows -t work -F "#{window_index}|#{window_name}|#{pane_current_command}|#{pane_current_path}" 2>/dev/null', { encoding: 'utf-8' });
-    const windows = out.trim().split('\n').filter(Boolean).map(line => {
-      const [index, name, command, cwd] = line.split('|');
-      return { index: parseInt(index), name, command, cwd, isClaudeSession: command === 'claude' || name.startsWith('jun-') };
-    });
-    res.json(windows);
+    const out = execSync('tmux list-sessions -F "#{session_name}|#{session_created}|#{pane_current_command}|#{pane_current_path}" 2>/dev/null', { encoding: 'utf-8' });
+    const sessions = out.trim().split('\n').filter(Boolean)
+      .map(line => {
+        const [name, created, command, cwd] = line.split('|');
+        return { name, created: parseInt(created), command, cwd, isClaudeSession: name.startsWith('jun-') };
+      })
+      .filter(s => s.isClaudeSession);
+    res.json(sessions);
   } catch (e) {
     res.json([]);
   }
@@ -720,16 +995,16 @@ app.post('/api/sessions/start', (req, res) => {
   const { projectName, projectPath, projectId, domain } = req.body;
   if (!projectName) return res.status(400).json({ error: 'projectName required' });
 
-  const safeName = 'jun-' + projectName.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
-  const projectDir = projectPath || path.join(SESSIONS_ROOT, safeName);
+  const cleanName = projectName.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
+  const sessionName = 'jun-' + cleanName;
+  const projectDir = projectPath || path.join(SESSIONS_ROOT, cleanName);
 
   try {
-    // Check if session already exists
+    // Check if independent tmux session already exists
     try {
-      const existing = execSync(`tmux list-windows -t work -F "#{window_name}" 2>/dev/null`, { encoding: 'utf-8' });
-      if (existing.includes(safeName)) {
-        execSync(`tmux select-window -t work:${safeName} 2>/dev/null`);
-        return res.json({ ok: true, action: 'focused', window: safeName, projectDir, message: `기존 세션 "${safeName}" 으로 전환됨` });
+      const existing = execSync('tmux list-sessions -F "#{session_name}" 2>/dev/null', { encoding: 'utf-8' });
+      if (existing.trim().split('\n').includes(sessionName)) {
+        return res.json({ ok: true, action: 'focused', session: sessionName, projectDir, message: `기존 세션 "${sessionName}" 이 실행 중입니다` });
       }
     } catch (e) { /* no existing */ }
 
@@ -753,75 +1028,14 @@ app.post('/api/sessions/start', (req, res) => {
     const claudeDir = path.join(projectDir, '.claude');
     if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
 
-    const claudeMd = `# ${projectName}
-
-## HARD GATE: Dashboard-First Rule (최우선 규칙)
-**모든 작업은 Jun.AI Dashboard에 먼저 보고한 후 실행한다. 예외 없음.**
-
-### 작업 순서 (절대 변경 금지)
-1. 대시보드에 agent_start 보고 → 2. 실제 작업 수행 → 3. 중간 progress 보고 (30%/50%/80%) → 4. agent_complete 보고 → 5. 산출물 document_created 보고
-
-### 금지 사항
-- ❌ 대시보드 보고 없이 작업 시작
-- ❌ 작업 완료 후 보고 빠뜨림
-- ❌ 산출물 생성 후 대시보드 미등록
-- ❌ 사용자 채팅 메시지 무시
-
-## Jun.AI Dashboard 연동
-- Dashboard: http://58.29.21.11:7700
-- API Docs: http://58.29.21.11:7701
-- Project ID: ${projectId || 'N/A'}
-
-## 진행 보고 API
-작업 중 반드시 아래 API로 대시보드에 보고하세요:
-
-\`\`\`bash
-# 작업 시작
-curl -s -X POST http://58.29.21.11:7700/api/events \\
-  -H 'Content-Type: application/json' \\
-  -d '{"type":"agent_start","agent":"에이전트명","task":"작업내용"}'
-
-# 진행률 (0-100)
-curl -s -X POST http://58.29.21.11:7700/api/events \\
-  -H 'Content-Type: application/json' \\
-  -d '{"type":"agent_progress","agent":"에이전트명","progress":50,"message":"진행내용"}'
-
-# 완료
-curl -s -X POST http://58.29.21.11:7700/api/events \\
-  -H 'Content-Type: application/json' \\
-  -d '{"type":"agent_complete","agent":"에이전트명","task":"작업내용"}'
-
-# 사용자에게 응답
-curl -s -X POST http://58.29.21.11:7700/api/tasks/태스크ID/comments \\
-  -H 'Content-Type: application/json' \\
-  -d '{"from":"에이전트명","message":"응답내용"}'
-
-# 산출물 보고
-curl -s -X POST http://58.29.21.11:7700/api/events \\
-  -H 'Content-Type: application/json' \\
-  -d '{"type":"document_created","file":"output/phase-XX/파일명.docx","format":"docx","phase":0}'
-\`\`\`
-
-## 산출물 디렉토리
-\`\`\`
-output/
-├── phase-00-research/      ← 선행기술 조사서, 특허맵
-├── phase-01-voc/            ← VOC 분석 보고서, 페르소나
-├── phase-02-market/         ← 시장분석서, 경쟁비교표
-├── phase-03-planning/       ← PRD, UX 사양서, GTM
-├── phase-04-requirements/   ← SRS, HRS, ICD
-├── phase-05-architecture/   ← 아키텍처 문서, WBS
-├── phase-06-design/         ← 설계 문서, API 스펙, BOM
-├── phase-07-detailed-design/← 상세 설계서, DB 스키마
-├── phase-08-implementation/ ← 코드 리뷰 기록
-├── phase-09-testing/        ← 테스트 보고서
-│   └── screenshots/         ← E2E 스크린샷
-├── phase-10-verification/   ← DHF, V&V 보고서
-├── phase-11-evaluation/     ← 평가 보고서
-├── certification/           ← 인증 문서 (FDA, CE, KC)
-└── media/                   ← 이미지, 다이어그램
-\`\`\`
-`;
+    // Load director protocol template and substitute variables
+    const templatePath = path.join(__dirname, 'templates', 'director-claude-md.md');
+    let claudeMd = fs.readFileSync(templatePath, 'utf-8');
+    claudeMd = claudeMd
+      .replace(/\{\{PROJECT_NAME\}\}/g, projectName)
+      .replace(/\{\{PROJECT_ID\}\}/g, projectId || 'N/A')
+      .replace(/\{\{DOMAIN\}\}/g, domain || 'general')
+      .replace(/\{\{SESSION_NAME\}\}/g, sessionName);
     fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), claudeMd, 'utf-8');
 
     // 3. Create README.md
@@ -838,12 +1052,13 @@ output/
       }
     } catch (e) { /* ignore */ }
 
-    // 5. Create tmux window
-    exec(`tmux new-window -t work -n "${safeName}" "cd ${projectDir} && claude" 2>/dev/null`);
+    // 5. Create independent tmux session (first creation: no --resume)
+    const claudeCmd = 'claude --dangerously-skip-permissions';
+    exec(`tmux new-session -d -s "${sessionName}" -c "${projectDir}" "${claudeCmd}" 2>/dev/null`);
 
     // 6. Update project record with directory path
     if (projectId) {
-      state.updateProject(projectId, { projectDir, sessionName: safeName });
+      state.updateProject(projectId, { projectDir, sessionName });
     }
 
     // 7. Save state
@@ -852,7 +1067,7 @@ output/
     res.json({
       ok: true,
       action: 'created',
-      window: safeName,
+      session: sessionName,
       projectDir,
       structure: {
         root: projectDir,
@@ -860,7 +1075,7 @@ output/
         src: path.join(projectDir, 'src'),
         claude: path.join(projectDir, '.claude')
       },
-      message: `프로젝트 "${projectName}" 세션 생성됨 — ${projectDir}`
+      message: `프로젝트 "${projectName}" 독립 세션 생성됨 — tmux: ${sessionName}, dir: ${projectDir}`
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -883,39 +1098,39 @@ app.get('/api/sessions/:name/files', (req, res) => {
   }
 });
 
-// Stop/close a tmux window
+// Stop/close an independent tmux session
 app.post('/api/sessions/stop', (req, res) => {
-  const { windowName } = req.body;
-  if (!windowName) return res.status(400).json({ error: 'windowName required' });
+  const { sessionName } = req.body;
+  if (!sessionName) return res.status(400).json({ error: 'sessionName required' });
   try {
-    execSync(`tmux kill-window -t work:${windowName} 2>/dev/null`);
-    res.json({ ok: true, message: `세션 "${windowName}" 종료됨` });
+    execSync(`tmux kill-session -t "${sessionName}" 2>/dev/null`);
+    res.json({ ok: true, message: `세션 "${sessionName}" 종료됨` });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Send message to a running claude session
+// Send message to an independent claude session
 app.post('/api/sessions/send', (req, res) => {
-  const { windowName, message } = req.body;
-  if (!windowName || !message) return res.status(400).json({ error: 'windowName and message required' });
+  const { sessionName, message } = req.body;
+  if (!sessionName || !message) return res.status(400).json({ error: 'sessionName and message required' });
   try {
     const escaped = message.replace(/"/g, '\\"');
-    execSync(`tmux send-keys -t work:${windowName} "${escaped}" Enter 2>/dev/null`);
+    execSync(`tmux send-keys -t "${sessionName}" "${escaped}" Enter 2>/dev/null`);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Get live terminal output from a tmux session (capture-pane)
+// Get live terminal output from an independent tmux session
 app.get('/api/sessions/:name/output', (req, res) => {
   try {
     const output = execSync(
-      `tmux capture-pane -t work:${req.params.name} -p -S -50 2>/dev/null`,
+      `tmux capture-pane -t "${req.params.name}" -p -S -50 2>/dev/null`,
       { encoding: 'utf-8', maxBuffer: 1024 * 1024 }
     );
-    res.json({ window: req.params.name, output, timestamp: new Date().toISOString() });
+    res.json({ session: req.params.name, output, timestamp: new Date().toISOString() });
   } catch (e) {
     res.status(404).json({ error: 'Session not found or no output' });
   }
@@ -936,6 +1151,121 @@ app.get('/api/chat/:projectId', (req, res) => {
     }
   } catch (e) { res.json([]); }
 });
+
+// --- Telegram Token Management ---
+const TELEGRAM_TOKEN_FILE = path.join(__dirname, 'data', 'telegram-tokens.json');
+
+// Known locations where telegram tokens may exist
+const KNOWN_TOKEN_PATHS = [
+  { path: path.join(__dirname, '.env'), label: 'Dashboard .env (@JunDash_bot)' },
+  { path: '/home/issacs/.claude/channels/telegram/.env', label: 'Claude Telegram Plugin' },
+  { path: '/home/issacs/work/claude-dev-forge/dashboard/.env', label: 'Legacy Dashboard .env' },
+];
+
+function loadTelegramTokens() {
+  try {
+    if (fs.existsSync(TELEGRAM_TOKEN_FILE)) return JSON.parse(fs.readFileSync(TELEGRAM_TOKEN_FILE, 'utf-8'));
+  } catch (e) {}
+  return {};
+}
+
+function saveTelegramTokens(tokens) {
+  fs.writeFileSync(TELEGRAM_TOKEN_FILE, JSON.stringify(tokens, null, 2), 'utf-8');
+}
+
+// Save telegram bot token for a project
+app.post('/api/telegram/token', (req, res) => {
+  const { projectId, token } = req.body;
+  if (!projectId || !token) return res.status(400).json({ error: 'projectId and token required' });
+  const tokens = loadTelegramTokens();
+  tokens[projectId] = { token, updatedAt: new Date().toISOString() };
+  saveTelegramTokens(tokens);
+  // Update project record
+  state.updateProject(projectId, { telegramToken: token });
+  saveState();
+  res.json({ ok: true, message: `프로젝트 ${projectId}에 텔레그램 토큰 저장됨` });
+});
+
+// Get telegram token for a project
+app.get('/api/telegram/token/:projectId', (req, res) => {
+  const tokens = loadTelegramTokens();
+  const entry = tokens[req.params.projectId];
+  if (!entry) return res.status(404).json({ error: 'Token not found' });
+  res.json({ projectId: req.params.projectId, hasToken: true, updatedAt: entry.updatedAt });
+});
+
+// List all telegram tokens
+app.get('/api/telegram/tokens', (req, res) => {
+  const tokens = loadTelegramTokens();
+  const result = Object.entries(tokens).map(([pid, entry]) => ({
+    projectId: pid, hasToken: true, updatedAt: entry.updatedAt
+  }));
+  res.json(result);
+});
+
+// Detect existing telegram tokens from known locations
+app.get('/api/telegram/detect', (req, res) => {
+  const found = [];
+  KNOWN_TOKEN_PATHS.forEach(({ path: envPath, label }) => {
+    try {
+      if (fs.existsSync(envPath)) {
+        const content = fs.readFileSync(envPath, 'utf-8');
+        const match = content.match(/TELEGRAM_BOT_TOKEN=(.+)/);
+        if (match) {
+          const token = match[1].trim();
+          const masked = token.substring(0, 10) + '...' + token.substring(token.length - 4);
+          found.push({ label, source: envPath, token, masked });
+        }
+      }
+    } catch (e) {}
+  });
+  // Also include already-registered project tokens
+  const registered = loadTelegramTokens();
+  Object.entries(registered).forEach(([pid, entry]) => {
+    const project = state.getProjects().find(p => p.id === pid);
+    const pName = project ? project.name : `Project ${pid}`;
+    const masked = entry.token.substring(0, 10) + '...' + entry.token.substring(entry.token.length - 4);
+    if (!found.some(f => f.token === entry.token)) {
+      found.push({ label: `${pName} (등록됨)`, source: 'registered', token: entry.token, masked });
+    }
+  });
+  res.json(found);
+});
+
+// Delete telegram token
+app.delete('/api/telegram/token/:projectId', (req, res) => {
+  const tokens = loadTelegramTokens();
+  delete tokens[req.params.projectId];
+  saveTelegramTokens(tokens);
+  state.updateProject(req.params.projectId, { telegramToken: null });
+  saveState();
+  res.json({ ok: true });
+});
+
+// --- Auto md→docx on document_created event ---
+const MD2DOCX_SCRIPT = path.join(__dirname, 'scripts', 'md2docx.py');
+
+function autoConvertMdToDocx(filePath) {
+  if (!filePath || !filePath.endsWith('.md')) return;
+  // Resolve full path
+  const fullPath = path.isAbsolute(filePath) ? filePath : path.join('/home/issacs/sessions', filePath);
+  if (!fs.existsSync(fullPath)) return;
+  const docxPath = fullPath.replace(/\.md$/, '.docx');
+  exec(`python3 "${MD2DOCX_SCRIPT}" "${fullPath}" "${docxPath}"`, (err, stdout) => {
+    if (!err && fs.existsSync(docxPath)) {
+      const relPath = filePath.replace(/\.md$/, '.docx');
+      state.processEvent({
+        type: 'document_created',
+        file: relPath,
+        format: 'docx',
+        phase: null,
+        timestamp: new Date().toISOString()
+      });
+      broadcast({ type: 'state_update', data: state.getFullState() });
+      saveState();
+    }
+  });
+}
 
 // Send chat message
 app.post('/api/chat/:projectId', (req, res) => {
@@ -961,72 +1291,112 @@ app.post('/api/chat/:projectId', (req, res) => {
   if (messages.length > 500) messages = messages.slice(-500);
   fs.writeFileSync(chatFile, JSON.stringify(messages, null, 2), 'utf-8');
 
-  // Broadcast to dashboard
-  broadcast({ type: 'chat_message', data: { projectId: req.params.projectId, message: msg } });
+  // Broadcast to dashboard (with notification flag for UI sound/blink)
+  broadcast({ type: 'chat_message', data: { projectId: req.params.projectId, message: msg, notify: (from || 'user') !== 'user' } });
 
-  // Auto-respond + forward to Claude session
+  // If agent responds → forward to Telegram user
+  if ((from || 'user') !== 'user') {
+    try {
+      const TELEGRAM_USERS_FILE = path.join(__dirname, 'data', 'telegram-users.json');
+      if (fs.existsSync(TELEGRAM_USERS_FILE)) {
+        const tgUsers = JSON.parse(fs.readFileSync(TELEGRAM_USERS_FILE, 'utf-8'));
+        const botToken = process.env.TELEGRAM_BOT_TOKEN || (() => {
+          try { const env = fs.readFileSync(path.join(__dirname, '.env'), 'utf-8'); const m = env.match(/TELEGRAM_BOT_TOKEN=(.+)/); return m ? m[1].trim() : null; } catch(e) { return null; }
+        })();
+        if (botToken) {
+          const project = state.getProjects().find(p => p.id === req.params.projectId);
+          const projectName = project ? project.name : 'Unknown';
+          const tgMessage = `💬 [${projectName}] ${from}:\n${message}`;
+          // Send to all users who have this project active, or all users
+          Object.entries(tgUsers).forEach(([chatId, user]) => {
+            const https = require('https');
+            const payload = JSON.stringify({ chat_id: chatId, text: tgMessage });
+            const tgReq = https.request({
+              hostname: 'api.telegram.org',
+              path: `/bot${botToken}/sendMessage`,
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+            });
+            tgReq.write(payload);
+            tgReq.end();
+          });
+        }
+      }
+    } catch (e) { /* ignore telegram errors */ }
+  }
+
+  // Forward to Claude session (always — no auto-response interception)
   if ((from || 'user') === 'user') {
     const projectId = req.params.projectId;
 
-    // 1. Auto-respond to common queries
-    const autoResponse = generateAutoResponse(message || '', projectId);
-    if (autoResponse) {
-      setTimeout(() => {
-        const chatFile = path.join(CHAT_DIR, `project-${projectId}.json`);
-        let msgs = [];
-        try { if (fs.existsSync(chatFile)) msgs = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
-        const autoMsg = {
-          id: String(Date.now()),
-          from: 'project-director',
-          message: autoResponse,
-          type: 'text',
-          fileName: null,
-          fileUrl: null,
-          timestamp: new Date().toISOString()
-        };
-        msgs.push(autoMsg);
-        if (msgs.length > 500) msgs = msgs.slice(-500);
-        fs.writeFileSync(chatFile, JSON.stringify(msgs, null, 2), 'utf-8');
-        broadcast({ type: 'chat_message', data: { projectId, message: autoMsg } });
-      }, 1500);
-    }
-
-    // 2. Forward to Claude tmux session (if auto-response didn't cover it)
-    if (!autoResponse) {
+    // Forward to Claude independent tmux session
+    {
       const project = state.getProjects().find(p => p.id === projectId);
       if (project) {
         try {
-          const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
-          const lines = sessions.trim().split('\n');
-          const safeName = project.sessionName || 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
-          let target = lines.find(l => l.startsWith(safeName + '|'));
-          if (!target) target = lines.find(l => l.includes('|claude'));
+          const sessionName = project.sessionName || 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
 
-          if (target) {
-            const windowName = target.split('|')[0];
+          // Check if independent session exists
+          let sessionExists = false;
+          try {
+            const allSessions = execSync('tmux list-sessions -F "#{session_name}" 2>/dev/null', { encoding: 'utf-8' });
+            sessionExists = allSessions.trim().split('\n').includes(sessionName);
+          } catch (e) {}
 
-            // Check if Claude session is idle (waiting for input)
+          if (sessionExists) {
+            // Build instruction
+            let instruction = '';
+            if (type === 'image' && fileUrl) {
+              instruction = `[Jun.AI 채팅] 사용자가 이미지를 보냈습니다: http://58.29.21.11:7700${fileUrl}`;
+              if (message) instruction += ` 메시지: ${message}`;
+            } else if (type === 'file' && fileUrl) {
+              instruction = `[Jun.AI 채팅] 사용자가 파일을 보냈습니다: ${fileName || 'file'} (http://58.29.21.11:7700${fileUrl})`;
+              if (message) instruction += ` 메시지: ${message}`;
+            } else {
+              instruction = `[Jun.AI 채팅] ${message}. 응답은 반드시 curl -s -X POST http://58.29.21.11:7700/api/chat/${projectId} -H 'Content-Type: application/json' -d '{"from":"project-director","message":"응답내용"}' 으로 보내주세요.`;
+            }
+
+            // Queue message for sequential delivery (prevents overlapping send-keys)
+            if (!state._sendQueue) state._sendQueue = {};
+            if (!state._sendQueue[sessionName]) state._sendQueue[sessionName] = [];
+            state._sendQueue[sessionName].push(instruction);
+
+            // Process queue: only send if not already processing
+            if (state._sendQueue[sessionName].length === 1) {
+              (function processQueue() {
+                const queue = state._sendQueue[sessionName];
+                if (!queue || !queue.length) return;
+                const msg = queue[0];
+                const escaped = msg.replace(/"/g, '\\"');
+
+                // Wait for idle, then send
+                const trySend = () => {
+                  try {
+                    const pane = execSync(`tmux capture-pane -t "${sessionName}" -p -S -3 2>/dev/null`, { encoding: 'utf-8' });
+                    const isIdle = pane.includes('❯') || pane.includes('> ') || pane.trim().endsWith('>');
+                    if (isIdle) {
+                      exec(`tmux send-keys -t "${sessionName}" "${escaped}" Enter`);
+                      queue.shift();
+                      if (queue.length > 0) setTimeout(processQueue, 3000); // next message after 3s
+                      return;
+                    }
+                  } catch(e) {}
+                  // Not idle → retry in 2s
+                  setTimeout(trySend, 2000);
+                };
+                trySend();
+              })();
+            }
+
+            // Check if currently idle for immediate feedback
             let isIdle = false;
             try {
-              const paneContent = execSync(`tmux capture-pane -t work:${windowName} -p -S -3 2>/dev/null`, { encoding: 'utf-8' });
-              // Claude shows "❯" or ">" prompt when idle
+              const paneContent = execSync(`tmux capture-pane -t "${sessionName}" -p -S -3 2>/dev/null`, { encoding: 'utf-8' });
               isIdle = paneContent.includes('❯') || paneContent.includes('> ') || paneContent.trim().endsWith('>');
             } catch (e) { isIdle = true; }
 
             if (isIdle) {
-              // Session is idle → forward message
-              let instruction = '';
-              if (type === 'image' && fileUrl) {
-                instruction = `[Jun.AI 채팅] 사용자가 이미지를 보냈습니다: http://58.29.21.11:7700${fileUrl}`;
-                if (message) instruction += ` 메시지: ${message}`;
-              } else if (type === 'file' && fileUrl) {
-                instruction = `[Jun.AI 채팅] 사용자가 파일을 보냈습니다: ${fileName || 'file'} (http://58.29.21.11:7700${fileUrl})`;
-                if (message) instruction += ` 메시지: ${message}`;
-              } else {
-                instruction = `[Jun.AI 채팅] ${message}. 응답은 반드시 curl -s -X POST http://58.29.21.11:7700/api/chat/${projectId} -H 'Content-Type: application/json' -d '{"from":"project-director","message":"응답내용"}' 으로 보내주세요.`;
-              }
-              const escaped = instruction.replace(/"/g, '\\"');
-              exec(`tmux send-keys -t work:${windowName} "${escaped}" Enter`);
+              // Will be sent by queue processor
             } else {
               // Session is busy → queue message and notify user
               setTimeout(() => {
@@ -1047,7 +1417,7 @@ app.post('/api/chat/:projectId', (req, res) => {
 
                 // Store in pending queue for later delivery
                 if (!state._pendingMessages) state._pendingMessages = [];
-                state._pendingMessages.push({ projectId, windowName, message: message, type, fileUrl, fileName, timestamp: new Date().toISOString() });
+                state._pendingMessages.push({ projectId, sessionName, message: message, type, fileUrl, fileName, timestamp: new Date().toISOString() });
               }, 2000);
             }
           } else {
@@ -1160,4 +1530,39 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n  Jun.AI Dashboard`);
   const host = process.env.DASHBOARD_HOST || '58.29.21.11';
   console.log(`  ● Live on http://${host}:${PORT}\n`);
+
+  // --- Auto-start & watchdog for telegram-bridge ---
+  const BRIDGE_SCRIPT = path.join(__dirname, 'telegram-bridge.js');
+  const BRIDGE_LOG = '/home/issacs/.jun-ai/logs/telegram.log';
+
+  function startBridge() {
+    try {
+      // Check if already running
+      try {
+        const pids = execSync('pgrep -f "node.*telegram-bridge" 2>/dev/null', { encoding: 'utf-8' }).trim();
+        if (pids) return; // Already running
+      } catch (e) { /* not running */ }
+
+      // Ensure log dir exists
+      try { fs.mkdirSync(path.dirname(BRIDGE_LOG), { recursive: true }); } catch(e) {}
+
+      const bridge = exec(`nohup node "${BRIDGE_SCRIPT}" >> "${BRIDGE_LOG}" 2>&1 &`);
+      console.log('  ✓ Telegram bridge started');
+    } catch (e) {
+      console.error('  ✗ Failed to start telegram bridge:', e.message);
+    }
+  }
+
+  // Start bridge on server boot
+  startBridge();
+
+  // Watchdog: check every 30s, restart if dead
+  setInterval(() => {
+    try {
+      execSync('pgrep -f "node.*telegram-bridge" > /dev/null 2>&1');
+    } catch (e) {
+      console.log(`  [${new Date().toISOString()}] Telegram bridge died — restarting...`);
+      startBridge();
+    }
+  }, 30000);
 });

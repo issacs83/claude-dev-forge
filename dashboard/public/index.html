@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jun.AI - PDLC Dashboard</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 </head>
 <body>
   <!-- Header -->
@@ -118,19 +119,20 @@
     <div class="panel-body" id="sessionList"></div>
   </div>
 
-  <!-- Terminal Viewer Panel -->
+  <!-- Interactive Terminal Panel -->
   <div class="agent-panel" id="terminalPanel">
-    <div class="panel-header" onclick="togglePanel('terminalPanel')">
-      <span>Terminal Output</span>
+    <div class="panel-header">
+      <span>Terminal</span>
       <div style="display:flex;gap:8px;align-items:center">
-        <select id="terminalSessionSelect" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:12px" onchange="loadTerminalOutput()">
+        <select id="terminalSessionSelect" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:12px" onchange="connectTerminal()">
           <option value="">-- select session --</option>
         </select>
-        <button onclick="loadTerminalOutput()" style="background:var(--accent-blue);color:white;border:none;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer">Refresh</button>
-        <span class="toggle-icon">▼</span>
+        <span id="terminalStatus" style="font-size:10px;color:var(--text-muted)"></span>
+        <button onclick="disconnectTerminal()" style="background:var(--accent-red,#e74c3c);color:white;border:none;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Disconnect">✕</button>
+        <button onclick="toggleTerminalExpand()" id="terminalExpandBtn" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Expand">⛶</button>
       </div>
     </div>
-    <div class="panel-body" id="terminalOutput" style="font-family:monospace;font-size:12px;background:#0a0e14;color:#b3b1ad;white-space:pre-wrap;max-height:300px;overflow-y:auto;padding:12px"></div>
+    <div id="terminalContainer" style="background:#0a0e14;height:350px;padding:4px;overflow:hidden"></div>
   </div>
 
   <!-- Agent Monitor Panel -->
@@ -247,12 +249,26 @@
       </div>
 
       <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">프로젝트 경로</label>
-      <input id="setupProjectPath" placeholder="/home/issacs/work/my-project (선택)" />
+      <input id="setupProjectPath" placeholder="/home/issacs/sessions/프로젝트명 (기본값 자동 생성)" />
 
       <label class="phase-check" style="margin-top:8px">
         <input type="checkbox" id="setupAutoSession" checked>
-        Claude Code 세션 자동 시작 (tmux)
+        Claude Code 독립 세션 자동 시작 (tmux)
       </label>
+
+      <div style="margin-top:12px;padding:12px;background:var(--bg-primary);border-radius:8px;border:1px solid var(--border)">
+        <label style="color:var(--text-secondary);font-size:12px;font-weight:600">Telegram Bot 연동 (선택)</label>
+        <div id="telegramBotSuggestion" style="font-size:11px;color:var(--accent-blue);margin:4px 0"></div>
+
+        <select id="setupTelegramExisting" style="width:100%;margin-bottom:8px;padding:6px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-size:12px" onchange="onTelegramSelect(this)">
+          <option value="">기존 토큰 선택...</option>
+        </select>
+
+        <input id="setupTelegramToken" placeholder="또는 새 토큰 직접 입력" style="font-family:monospace;font-size:12px" />
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+          기존 토큰을 선택하거나, @BotFather에서 새로 발급받아 입력하세요
+        </div>
+      </div>
 
       <div class="modal-actions" style="margin-top:16px">
         <button onclick="setupProject()">Setup & Start</button>
@@ -317,6 +333,9 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

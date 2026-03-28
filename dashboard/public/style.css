@@ -799,3 +799,30 @@ body {
   .agent-panel, .doc-panel { margin: 0 8px 8px; }
   .panel-body { padding: 8px; }
 }
+
+/* Chat notification badge */
+#chatToggle {
+  position: relative;
+  transition: transform 0.2s, background 0.3s;
+}
+#chatToggle[data-unread]::after {
+  content: attr(data-unread);
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #e74c3c;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: chatBadgePulse 1s infinite;
+}
+@keyframes chatBadgePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+}

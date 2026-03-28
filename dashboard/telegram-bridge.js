@@ -1,4 +1,9 @@
 require('dotenv').config({ path: __dirname + '/.env' });
+
+// Force IPv4 globally — prevents AggregateError from IPv6 failures
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
+
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
@@ -22,7 +27,31 @@ const bot = new TelegramBot(TOKEN, {
     family: 4 // Force IPv4
   }
 });
-bot.on('polling_error', () => {}); // Suppress polling error logs
+// Suppress ALL polling errors — never crash on network issues
+bot.on('polling_error', (err) => {
+  const msg = err.message || String(err);
+  if (msg.includes('ETIMEDOUT') || msg.includes('ENETUNREACH') || msg.includes('ECONNREFUSED') || msg.includes('ECONNRESET')) {
+    console.log(`  [${new Date().toISOString()}] Telegram connection error — auto-retry in next poll cycle`);
+  } else if (msg.includes('409')) {
+    console.log(`  [${new Date().toISOString()}] Telegram 409 conflict — another instance may be running`);
+  } else {
+    console.log(`  [${new Date().toISOString()}] Polling error: ${msg.substring(0, 100)}`);
+  }
+});
+
+bot.on('error', (err) => {
+  console.log(`  [${new Date().toISOString()}] Bot error: ${(err.message || '').substring(0, 100)}`);
+});
+
+// Prevent crash on ANY uncaught errors
+process.on('uncaughtException', (err) => {
+  console.error(`  [UNCAUGHT] ${err.message || err}`);
+  // Do NOT exit — keep running
+});
+process.on('unhandledRejection', (err) => {
+  console.error(`  [UNHANDLED] ${err}`);
+  // Do NOT exit — keep running
+});
 console.log('\n  Jun Dashboard Bot (@JunDash_bot)');
 console.log('  ● Telegram bridge started\n');
 
@@ -163,16 +192,58 @@ bot.onText(/\/help/, (msg) => {
     `🤖 *Jun\\.AI Agent Bot*\n\n` +
     `*명령어:*\n` +
     `/start \\- 시작\n` +
+    `/admin \\<메시지\\> \\- 시스템 관리자에게 전달\n` +
     `/status \\- 프로젝트 상태\n` +
     `/projects \\- 프로젝트 목록\n` +
+    `/sessions \\- Claude 세션 목록\n` +
     `/agents \\- 에이전트 현황\n` +
     `/outputs \\- 산출물 목록\n` +
     `/help \\- 도움말\n\n` +
-    `*일반 메시지* \\= 팀장 에이전트에게 전달\n` +
+    `*일반 메시지* \\= 선택된 프로젝트 팀장에게 전달\n` +
+    `*/admin 메시지* \\= 시스템 총괄 관리자에게 전달\n` +
     `*사진 전송* \\= 스크린샷으로 전달\n` +
     `*파일 전송* \\= 첨부 파일로 전달`,
     { parse_mode: 'MarkdownV2' }
   );
+});
+
+// --- Admin Command (→ jun-Admin session) ---
+bot.onText(/\/admin\s*(.*)/, async (msg, match) => {
+  const message = (match[1] || '').trim();
+  if (!message) {
+    return bot.sendMessage(msg.chat.id, '사용법: /admin <메시지>\n\n예:\n/admin 시스템 상태 확인해줘\n/admin 새 프로젝트 만들어줘\n/admin 세션 재시작해줘');
+  }
+
+  // Find Admin project
+  const projects = await api('GET', '/api/projects');
+  const adminProject = Array.isArray(projects) ? projects.find(p => p.name === 'Admin') : null;
+  if (!adminProject) {
+    return bot.sendMessage(msg.chat.id, '❌ Admin 프로젝트가 없습니다.');
+  }
+
+  // Send to Admin chat
+  await api('POST', `/api/chat/${adminProject.id}`, {
+    from: 'user',
+    message: message,
+    type: 'text'
+  });
+
+  bot.sendMessage(msg.chat.id, '✅ 시스템 관리자(Admin)에게 전달됨');
+});
+
+// --- Sessions Command ---
+bot.onText(/\/sessions/, async (msg) => {
+  const sessions = await api('GET', '/api/sessions');
+  if (!Array.isArray(sessions) || !sessions.length) {
+    return bot.sendMessage(msg.chat.id, '실행 중인 Claude 세션이 없습니다.');
+  }
+
+  let text = '🖥 *Claude Sessions*\n\n';
+  sessions.forEach(s => {
+    text += `● ${escTg(s.name)} \\(${escTg(s.command)}\\)\n`;
+  });
+
+  bot.sendMessage(msg.chat.id, text, { parse_mode: 'MarkdownV2' });
 });
 
 // --- Message Handler (text → project chat) ---
@@ -181,13 +252,46 @@ bot.on('message', async (msg) => {
 
   const user = getUser(msg.chat.id);
   if (!user.activeProject) {
-    // Auto-select first project
+    // Auto-select Admin project as default
     const projects = await api('GET', '/api/projects');
     if (Array.isArray(projects) && projects.length > 0) {
-      user.activeProject = projects[0].id;
+      const adminProject = projects.find(p => p.name === 'Admin');
+      user.activeProject = adminProject ? adminProject.id : projects[0].id;
       saveUsers();
     } else {
       return bot.sendMessage(msg.chat.id, '프로젝트가 없습니다. 대시보드에서 먼저 생성하세요.');
+    }
+  }
+
+  // Handle pending rejection (approval system)
+  if (user._pendingReject) {
+    const taskId = user._pendingReject;
+    delete user._pendingReject;
+    saveUsers();
+    await api('POST', `/api/tasks/${taskId}/reject`, { reason: msg.text });
+    bot.sendMessage(msg.chat.id, `❌ 반려 처리됨.\n사유: ${msg.text}\n에이전트에게 피드백이 전달되어 재작업을 시작합니다.`);
+    return;
+  }
+
+  // Handle approval keywords in chat
+  if (msg.text.match(/^(승인|확인|OK|좋아요|진행)$/i)) {
+    // Check if there's a pending approval task
+    const status = await api('GET', '/api/status');
+    const pendingApproval = (status.tasks || []).find(t => t.approval && t.approval.status === 'pending' && t.project === user.activeProject);
+    if (pendingApproval) {
+      await api('POST', `/api/tasks/${pendingApproval.id}/approve`, {});
+      bot.sendMessage(msg.chat.id, `✅ "${pendingApproval.title}" 결재 승인됨. 다음 단계로 진행합니다.`);
+      return;
+    }
+  }
+  if (msg.text.match(/^반려[:\s]/)) {
+    const reason = msg.text.replace(/^반려[:\s]*/, '').trim();
+    const status = await api('GET', '/api/status');
+    const pendingApproval = (status.tasks || []).find(t => t.approval && t.approval.status === 'pending' && t.project === user.activeProject);
+    if (pendingApproval) {
+      await api('POST', `/api/tasks/${pendingApproval.id}/reject`, { reason: reason || '사유 미기재' });
+      bot.sendMessage(msg.chat.id, `❌ "${pendingApproval.title}" 반려됨.\n사유: ${reason || '사유 미기재'}\n재작업을 시작합니다.`);
+      return;
     }
   }
 
@@ -198,49 +302,83 @@ bot.on('message', async (msg) => {
     type: 'text'
   });
 
-  bot.sendMessage(msg.chat.id, '✅ 팀장 에이전트에게 전달됨');
+  // Determine target name
+  const projects = await api('GET', '/api/projects');
+  const targetProject = Array.isArray(projects) ? projects.find(p => p.id === user.activeProject) : null;
+  const targetName = targetProject ? targetProject.name : 'unknown';
+  const isAdmin = targetName === 'Admin';
+  bot.sendMessage(msg.chat.id, `✅ ${isAdmin ? '시스템 관리자(Admin)' : targetName + ' 팀장'}에게 전달됨`);
 });
 
 // --- Photo Handler ---
 bot.on('photo', async (msg) => {
+  console.log(`  [PHOTO] Received from ${msg.chat.id}, caption: ${msg.caption || 'none'}`);
   const user = getUser(msg.chat.id);
-  if (!user.activeProject) return bot.sendMessage(msg.chat.id, '프로젝트를 먼저 선택하세요: /projects');
+  if (!user.activeProject) {
+    const projects = await api('GET', '/api/projects');
+    const admin = Array.isArray(projects) ? projects.find(p => p.name === 'Admin') : null;
+    user.activeProject = admin ? admin.id : (projects[0] ? projects[0].id : null);
+    saveUsers();
+    if (!user.activeProject) return bot.sendMessage(msg.chat.id, '프로젝트가 없습니다.');
+  }
 
-  // Get largest photo
-  const photo = msg.photo[msg.photo.length - 1];
-  const fileLink = await bot.getFileLink(photo.file_id);
+  try {
+    const photo = msg.photo[msg.photo.length - 1];
+    let fileLink;
+    try {
+      fileLink = await bot.getFileLink(photo.file_id);
+    } catch (e) {
+      console.log(`  [PHOTO ERROR] getFileLink failed: ${e.message}`);
+      return bot.sendMessage(msg.chat.id, '❌ 텔레그램 파일 서버 연결 실패. 잠시 후 다시 시도해주세요.');
+    }
 
-  // Download and upload to dashboard
-  const https = require('https');
-  const getFile = (url) => new Promise((resolve) => {
-    const mod = url.startsWith('https') ? require('https') : require('http');
-    mod.get(url, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
+    // Download with timeout and IPv4 forced
+    const getFile = (url) => new Promise((resolve, reject) => {
+      const mod = url.startsWith('https') ? require('https') : require('http');
+      const req = mod.get(url, { family: 4, timeout: 15000 }, (res) => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Download timeout')); });
     });
-  });
 
-  const buffer = await getFile(fileLink);
-  const base64 = 'data:image/jpeg;base64,' + buffer.toString('base64');
-  const uploadRes = await api('POST', '/api/upload', { data: base64, fileName: 'telegram-photo.jpg', type: 'image' });
+    const buffer = await getFile(fileLink);
+    const base64 = 'data:image/jpeg;base64,' + buffer.toString('base64');
+    const uploadRes = await api('POST', '/api/upload', { data: base64, fileName: 'telegram-photo.jpg', type: 'image' });
 
-  if (uploadRes.ok) {
-    await api('POST', `/api/chat/${user.activeProject}`, {
-      from: 'user',
-      message: msg.caption || '',
-      type: 'image',
-      fileName: 'telegram-photo.jpg',
-      fileUrl: uploadRes.url
-    });
-    bot.sendMessage(msg.chat.id, '📸 이미지가 팀장에게 전달됨');
+    if (uploadRes.ok) {
+      await api('POST', `/api/chat/${user.activeProject}`, {
+        from: 'user',
+        message: msg.caption || '',
+        type: 'image',
+        fileName: 'telegram-photo.jpg',
+        fileUrl: uploadRes.url
+      });
+      const projects = await api('GET', '/api/projects');
+      const targetProject = Array.isArray(projects) ? projects.find(p => p.id === user.activeProject) : null;
+      bot.sendMessage(msg.chat.id, `📸 이미지가 ${targetProject ? targetProject.name : ''} 팀장에게 전달됨`);
+    } else {
+      bot.sendMessage(msg.chat.id, '❌ 이미지 업로드 실패');
+    }
+  } catch (e) {
+    console.log(`  [PHOTO ERROR] ${e.message}`);
+    bot.sendMessage(msg.chat.id, `❌ 이미지 처리 실패: ${e.message}`);
   }
 });
 
 // --- Document/File Handler ---
 bot.on('document', async (msg) => {
   const user = getUser(msg.chat.id);
-  if (!user.activeProject) return bot.sendMessage(msg.chat.id, '프로젝트를 먼저 선택하세요: /projects');
+  if (!user.activeProject) {
+    const projects = await api('GET', '/api/projects');
+    const admin = Array.isArray(projects) ? projects.find(p => p.name === 'Admin') : null;
+    user.activeProject = admin ? admin.id : (projects[0] ? projects[0].id : null);
+    saveUsers();
+    if (!user.activeProject) return bot.sendMessage(msg.chat.id, '프로젝트가 없습니다.');
+  }
 
   const doc = msg.document;
   const fileLink = await bot.getFileLink(doc.file_id);
@@ -292,11 +430,31 @@ bot.on('callback_query', async (query) => {
     bot.answerCallbackQuery(query.id, { text: approved ? '✅ 승인됨' : '❌ 거부됨' });
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: query.message.chat.id, message_id: query.message.message_id });
   }
+
+  // Approval system callbacks
+  if (data.startsWith('approve_')) {
+    const taskId = data.replace('approve_', '');
+    await api('POST', `/api/tasks/${taskId}/approve`, {});
+    bot.answerCallbackQuery(query.id, { text: '✅ 결재 승인됨' });
+    bot.editMessageText(query.message.text + '\n\n✅ 승인됨', { chat_id: query.message.chat.id, message_id: query.message.message_id });
+  }
+
+  if (data.startsWith('reject_')) {
+    const taskId = data.replace('reject_', '');
+    // Ask for rejection reason
+    bot.answerCallbackQuery(query.id, { text: '반려 사유를 입력하세요' });
+    bot.sendMessage(query.message.chat.id, '❌ 반려 사유를 입력해주세요:\n(다음 메시지로 입력하면 반려 처리됩니다)');
+    // Store pending rejection
+    const user = getUser(query.message.chat.id);
+    user._pendingReject = taskId;
+    saveUsers();
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: query.message.chat.id, message_id: query.message.message_id });
+  }
 });
 
 // --- WebSocket: Listen for agent responses + notifications ---
 function connectWS() {
-  const ws = new WebSocket('ws://localhost:7700');
+  const ws = new WebSocket('ws://localhost:7700/ws');
 
   ws.on('open', () => { console.log('  ✓ WebSocket connected to dashboard'); });
 
