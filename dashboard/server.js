@@ -73,10 +73,31 @@ app.get('/api/export', (req, res) => {
   res.json(state.getFullState());
 });
 
+// List backups for recovery
+app.get('/api/backups', (req, res) => {
+  res.json(state.listBackups(DATA_FILE));
+});
+
+// Restore from backup
+app.post('/api/restore', (req, res) => {
+  const { backupFile } = req.body;
+  if (!backupFile) return res.status(400).json({ error: 'backupFile required' });
+  const ok = state.restoreFromBackup(DATA_FILE, backupFile);
+  if (ok) {
+    broadcast({ type: 'state_update', data: state.getFullState() });
+    res.json({ ok: true, message: `Restored from ${backupFile}`, projects: state.getProjects().length, tasks: state.tasks.length });
+  } else {
+    res.status(404).json({ error: 'Backup not found or invalid' });
+  }
+});
+
 // Get phases
 app.get('/api/phases', (req, res) => {
   res.json(state.getPhases());
 });
+
+// Helper: save after every mutation
+function saveState() { state.save(DATA_FILE); }
 
 // Post event (called by project-director / hooks)
 app.post('/api/events', (req, res) => {
@@ -85,6 +106,7 @@ app.post('/api/events', (req, res) => {
   state.processEvent(event);
   broadcast({ type: 'event', data: event });
   broadcast({ type: 'state_update', data: state.getFullState() });
+  saveState();
   res.json({ ok: true });
 });
 
@@ -98,6 +120,7 @@ app.post('/api/projects', (req, res) => {
   const project = state.createProject(req.body);
   broadcast({ type: 'project_created', data: project });
   broadcast({ type: 'state_update', data: state.getFullState() });
+  saveState();
   res.json(project);
 });
 
@@ -106,6 +129,7 @@ app.patch('/api/projects/:id', (req, res) => {
   const project = state.updateProject(req.params.id, req.body);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   broadcast({ type: 'state_update', data: state.getFullState() });
+  saveState();
   res.json(project);
 });
 
@@ -114,6 +138,7 @@ app.post('/api/tasks', (req, res) => {
   const task = state.createTask(req.body);
   broadcast({ type: 'task_created', data: task });
   broadcast({ type: 'state_update', data: state.getFullState() });
+  saveState();
   res.json(task);
 });
 
@@ -123,6 +148,7 @@ app.patch('/api/tasks/:id', (req, res) => {
   if (!task) return res.status(404).json({ error: 'Task not found' });
   broadcast({ type: 'task_updated', data: task });
   broadcast({ type: 'state_update', data: state.getFullState() });
+  saveState();
   res.json(task);
 });
 
@@ -190,7 +216,8 @@ app.post('/api/projects/setup', (req, res) => {
     timestamp: new Date().toISOString()
   });
 
-  // 6. Broadcast
+  // 6. Save + Broadcast
+  saveState();
   broadcast({ type: 'state_update', data: state.getFullState() });
 
   res.json({
@@ -207,9 +234,12 @@ app.delete('/api/projects/:id', (req, res) => {
   if (req.body.confirmName && req.body.confirmName !== project.name) {
     return res.status(400).json({ error: 'Project name does not match' });
   }
+  // Force backup before deletion
+  saveState();
   state.deleteProject(req.params.id);
   broadcast({ type: 'state_update', data: state.getFullState() });
-  res.json({ ok: true, deleted: project.name });
+  saveState();
+  res.json({ ok: true, deleted: project.name, message: '삭제됨. 복구: GET /api/backups → POST /api/restore' });
 });
 
 // Get task detail

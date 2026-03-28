@@ -323,10 +323,40 @@ class StateManager {
     return 'document';
   }
 
-  // --- Data Persistence ---
+  // --- Data Persistence (Protected) ---
+
   save(filePath) {
     const fs = require('fs');
+    const path = require('path');
+    const backupDir = path.join(path.dirname(filePath), 'backups');
+
+    // 1. Ensure backup directory exists
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+    // 2. Backup current file before overwriting
+    if (fs.existsSync(filePath)) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.join(backupDir, `state-${timestamp}.json`);
+      try {
+        fs.copyFileSync(filePath, backupPath);
+      } catch (e) { /* ignore backup errors */ }
+
+      // Keep last 50 backups, delete older ones
+      try {
+        const backups = fs.readdirSync(backupDir)
+          .filter(f => f.startsWith('state-') && f.endsWith('.json'))
+          .sort()
+          .reverse();
+        backups.slice(50).forEach(f => {
+          try { fs.unlinkSync(path.join(backupDir, f)); } catch (e) {}
+        });
+      } catch (e) {}
+    }
+
+    // 3. Write to temp file first, then rename (atomic write)
     const data = {
+      _version: 2,
+      _warning: 'DO NOT DELETE - Jun.AI Dashboard state. Use /api/projects/:id DELETE with confirmName to remove projects.',
       projects: this.projects,
       projectIdCounter: this.projectIdCounter,
       tasks: this.tasks,
@@ -334,14 +364,17 @@ class StateManager {
       agents: this.agents,
       phases: this.phases,
       documents: this.documents,
-      timeline: this.timeline.slice(-200),
+      timeline: this.timeline.slice(-500),
       debugLoops: this.debugLoops,
       comments: this.comments,
       taskHistory: this.taskHistory,
       commentIdCounter: this.commentIdCounter,
       savedAt: new Date().toISOString()
     };
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+
+    const tmpPath = filePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
   }
 
   load(filePath) {
@@ -349,6 +382,7 @@ class StateManager {
     try {
       if (!fs.existsSync(filePath)) return false;
       const raw = fs.readFileSync(filePath, 'utf-8');
+      if (!raw || raw.trim().length === 0) return false;
       const data = JSON.parse(raw);
       this.projects = data.projects || [];
       this.projectIdCounter = data.projectIdCounter || 0;
@@ -362,10 +396,72 @@ class StateManager {
       this.comments = data.comments || {};
       this.taskHistory = data.taskHistory || {};
       this.commentIdCounter = data.commentIdCounter || 0;
+      console.log(`  ✓ Loaded: ${this.projects.length} projects, ${this.tasks.length} tasks`);
       return true;
     } catch (e) {
-      return false;
+      console.error('  ✗ Failed to load state:', e.message);
+      // Try loading from latest backup
+      return this._loadFromBackup(filePath);
     }
+  }
+
+  _loadFromBackup(filePath) {
+    const fs = require('fs');
+    const path = require('path');
+    const backupDir = path.join(path.dirname(filePath), 'backups');
+    try {
+      if (!fs.existsSync(backupDir)) return false;
+      const backups = fs.readdirSync(backupDir)
+        .filter(f => f.startsWith('state-') && f.endsWith('.json'))
+        .sort()
+        .reverse();
+      for (const backup of backups) {
+        try {
+          const raw = fs.readFileSync(path.join(backupDir, backup), 'utf-8');
+          const data = JSON.parse(raw);
+          if (data.projects && data.tasks) {
+            // Restore from backup
+            fs.copyFileSync(path.join(backupDir, backup), filePath);
+            console.log(`  ✓ Recovered from backup: ${backup}`);
+            return this.load(filePath);
+          }
+        } catch (e) { continue; }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // List available backups for recovery
+  listBackups(filePath) {
+    const fs = require('fs');
+    const path = require('path');
+    const backupDir = path.join(path.dirname(filePath), 'backups');
+    try {
+      if (!fs.existsSync(backupDir)) return [];
+      return fs.readdirSync(backupDir)
+        .filter(f => f.startsWith('state-') && f.endsWith('.json'))
+        .sort()
+        .reverse()
+        .map(f => {
+          const stat = fs.statSync(path.join(backupDir, f));
+          return { file: f, size: stat.size, modified: stat.mtime.toISOString() };
+        });
+    } catch (e) { return []; }
+  }
+
+  // Restore from a specific backup
+  restoreFromBackup(filePath, backupFile) {
+    const fs = require('fs');
+    const path = require('path');
+    const backupPath = path.join(path.dirname(filePath), 'backups', backupFile);
+    if (!fs.existsSync(backupPath)) return false;
+
+    // Backup current state first
+    this.save(filePath);
+
+    // Restore
+    fs.copyFileSync(backupPath, filePath);
+    return this.load(filePath);
   }
 }
 
