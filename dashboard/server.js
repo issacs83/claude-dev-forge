@@ -616,7 +616,7 @@ function generateAutoResponse(message, projectId) {
   const runningAgents = Object.values(agents).filter(a => a.status === 'running');
 
   // Status queries
-  if (msg.includes('상태') || msg.includes('status') || msg.includes('현황') || msg.includes('보고')) {
+  if (msg.includes('상태') || msg.includes('status') || msg.includes('현황') || msg.includes('보고') || msg.includes('상황') || msg.includes('진행') || msg.includes('어때') || msg.includes('알려')) {
     let res = `📊 ${projectName} 현황:\n\n`;
     res += `태스크: ${doneTasks}/${totalTasks} 완료 (${rate}%)\n`;
     if (activeTasks.length > 0) {
@@ -666,6 +666,25 @@ function generateAutoResponse(message, projectId) {
     let res = `📁 산출물 (${docs.length}개):\n\n`;
     docs.slice(-10).forEach(d => { res += `  📄 ${d.file}\n`; });
     return res;
+  }
+
+  // Connection/session queries
+  if (msg.includes('연결') || msg.includes('connect') || msg.includes('세션') || msg.includes('session')) {
+    try {
+      const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
+      const claudeSessions = sessions.trim().split('\n').filter(l => l.includes('|claude'));
+      let res = `🔗 연결 상태:\n\n`;
+      res += `Dashboard: ● Running (http://58.29.21.11:7700)\n`;
+      res += `Telegram: ● ${require('child_process').execSync('pgrep -f telegram-bridge > /dev/null 2>&1 && echo Connected || echo Disconnected', {encoding:'utf-8'}).trim()}\n`;
+      res += `Claude 세션: ${claudeSessions.length}개\n`;
+      claudeSessions.forEach(s => {
+        const name = s.split('|')[0];
+        res += `  ● ${name}\n`;
+      });
+      return res;
+    } catch(e) {
+      return '🔗 연결 상태 확인 실패';
+    }
   }
 
   // Help
