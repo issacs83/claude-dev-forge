@@ -146,14 +146,48 @@
     </div>
   </div>
 
-  <!-- New Project Modal -->
+  <!-- Project Setup Wizard Modal -->
   <div class="modal-overlay" id="newProjectModal" style="display:none">
-    <div class="modal">
-      <h3>New Project</h3>
-      <input id="newProjectName" placeholder="Project name" />
-      <input id="newProjectDesc" placeholder="Description (optional)" />
-      <div class="modal-actions">
-        <button onclick="createProject()">Create</button>
+    <div class="modal" style="min-width:480px">
+      <h3>New Project Setup</h3>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">
+        프로젝트를 생성하고 PDLC 12단계 태스크를 자동 셋업합니다.
+      </p>
+
+      <label style="color:var(--text-secondary);font-size:12px">프로젝트 이름 *</label>
+      <input id="setupProjectName" placeholder="예: 스마트 카메라 v2.0" />
+
+      <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">설명</label>
+      <input id="setupProjectDesc" placeholder="프로젝트 목표 및 범위" />
+
+      <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">도메인</label>
+      <select id="setupProjectDomain">
+        <option value="general">General (범용)</option>
+        <option value="web-fullstack">Web Fullstack (React/Node.js)</option>
+        <option value="yocto-bsp">Yocto BSP (임베디드 Linux)</option>
+        <option value="firmware">Firmware (MCU/FPGA/RTOS)</option>
+        <option value="ai-ml">AI/ML (학습/추론/배포)</option>
+        <option value="hardware">Hardware (회로/기구/광학)</option>
+      </select>
+
+      <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">PDLC 범위</label>
+      <div id="phaseCheckboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px">
+        <label class="phase-check"><input type="checkbox" value="0" checked> P0: 선행연구</label>
+        <label class="phase-check"><input type="checkbox" value="1" checked> P1: VOC</label>
+        <label class="phase-check"><input type="checkbox" value="2" checked> P2: 시장조사</label>
+        <label class="phase-check"><input type="checkbox" value="3" checked> P3: 기획/디자인</label>
+        <label class="phase-check"><input type="checkbox" value="4" checked> P4: 세부기획</label>
+        <label class="phase-check"><input type="checkbox" value="5" checked> P5: 아키텍처</label>
+        <label class="phase-check"><input type="checkbox" value="6" checked> P6: 파트별 설계</label>
+        <label class="phase-check"><input type="checkbox" value="7" checked> P7: 세부설계</label>
+        <label class="phase-check"><input type="checkbox" value="8" checked> P8: 구현</label>
+        <label class="phase-check"><input type="checkbox" value="9" checked> P9: 테스트</label>
+        <label class="phase-check"><input type="checkbox" value="10" checked> P10: 검증</label>
+        <label class="phase-check"><input type="checkbox" value="11" checked> P11: 평가</label>
+      </div>
+
+      <div class="modal-actions" style="margin-top:16px">
+        <button onclick="setupProject()">Setup & Start</button>
         <button onclick="hideNewProjectModal()">Cancel</button>
       </div>
     </div>

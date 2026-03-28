@@ -26,6 +26,26 @@ const API_DOCS = {
           desc: '프로젝트 업데이트',
           body: '{ name?, description?, status? }',
           response: '{ ...updated project }'
+        },
+        {
+          method: 'POST', path: '/api/projects/setup',
+          desc: '프로젝트 셋업 — 프로젝트 생성 + PDLC 12단계 태스크 자동 생성 (VOC 전 단계)',
+          body: `{
+  name: string,              // 프로젝트 이름 (필수)
+  description?: string,      // 프로젝트 설명
+  domain?: string,           // "general" | "web-fullstack" | "yocto-bsp" | "firmware" | "ai-ml" | "hardware"
+  phases?: number[]          // 활성화할 Phase 번호 [0-11], 생략 시 전체 12단계
+}`,
+          response: '{ project: {...}, tasks: [...], message: string }',
+          example: `// 프로젝트 셋업 (lifecycle 시작 전 호출)
+curl -X POST http://localhost:7700/api/projects/setup \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+    "name": "스마트 카메라 v2.0",
+    "description": "AI 기반 스마트 카메라 제품 개발",
+    "domain": "ai-ml",
+    "phases": [0,1,2,3,4,5,6,7,8,9,10,11]
+  }'`
         }
       ]
     },

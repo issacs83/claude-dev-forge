@@ -53,6 +53,22 @@ Analyze user input and map to the appropriate PDLC phase:
 
 ## Orchestration Protocol
 
+### Step 0: Dashboard Project Setup (Pre-VOC)
+When starting a new project or lifecycle:
+1. Check if Jun.AI Dashboard is running on `localhost:7700`
+2. If not, start it: `cd ~/.claude/dashboard && npm start &`
+3. Register the project via API:
+   ```bash
+   curl -X POST http://localhost:7700/api/projects/setup \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"project name","description":"desc","domain":"web-fullstack|yocto-bsp|firmware|ai-ml|hardware|general","phases":[0,1,2,3,4,5,6,7,8,9,10,11]}'
+   ```
+4. This auto-creates the project + 12 PDLC phase tasks in the dashboard
+5. All subsequent agent activities will be reported to the dashboard via `/api/events`
+6. When each phase starts: `POST /api/events {"type":"agent_start","agent":"...","phase":N,"task":"..."}`
+7. When each phase completes: `POST /api/events {"type":"agent_complete","agent":"...","phase":N}`
+8. Dashboard shows real-time progress to the user
+
 ### Step 1: Requirement Interpretation
 - Parse user's natural language input
 - Identify intent, domain, and PDLC phase

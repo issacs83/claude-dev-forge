@@ -415,20 +415,54 @@ async function createTask() {
 function showNewProjectModal() { document.getElementById('newProjectModal').style.display = 'flex'; }
 function hideNewProjectModal() { document.getElementById('newProjectModal').style.display = 'none'; }
 
-async function createProject() {
-  const name = document.getElementById('newProjectName').value.trim();
-  if (!name) return;
-  const description = document.getElementById('newProjectDesc').value.trim();
+async function setupProject() {
+  const name = document.getElementById('setupProjectName').value.trim();
+  if (!name) { alert('프로젝트 이름을 입력하세요'); return; }
+  const description = document.getElementById('setupProjectDesc').value.trim();
+  const domain = document.getElementById('setupProjectDomain').value;
 
-  await fetch('/api/projects', {
+  // Collect selected phases
+  const checkboxes = document.querySelectorAll('#phaseCheckboxes input[type="checkbox"]:checked');
+  const phases = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+  if (phases.length === 0) { alert('최소 1개 이상의 Phase를 선택하세요'); return; }
+
+  const res = await fetch('/api/projects/setup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description })
+    body: JSON.stringify({ name, description, domain, phases })
   });
+  const data = await res.json();
 
-  document.getElementById('newProjectName').value = '';
-  document.getElementById('newProjectDesc').value = '';
+  // Reset form
+  document.getElementById('setupProjectName').value = '';
+  document.getElementById('setupProjectDesc').value = '';
   hideNewProjectModal();
+
+  // Auto-select the new project in filter
+  setTimeout(() => {
+    const sel = document.getElementById('projectFilter');
+    if (sel && data.project) {
+      sel.value = data.project.id;
+      onProjectFilterChange();
+    }
+  }, 500);
+
+  // Show success banner
+  const banner = document.createElement('div');
+  banner.className = 'setup-banner';
+  banner.innerHTML = `
+    <span class="text">✅ "${escapeHtml(name)}" 프로젝트 셋업 완료 — ${data.tasks ? data.tasks.length : 0}개 PDLC 태스크 생성됨 (${domain})</span>
+    <button class="dismiss" onclick="this.parentElement.remove()">×</button>
+  `;
+  const board = document.getElementById('kanbanBoard');
+  board.parentElement.insertBefore(banner, board);
+  setTimeout(() => banner.remove(), 15000);
+}
+
+// Legacy createProject for backward compat
+async function createProject() {
+  return setupProject();
 }
 
 function onProjectFilterChange() {

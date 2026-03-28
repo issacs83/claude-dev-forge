@@ -9,6 +9,19 @@ You are executing the `/lifecycle` command.
 
 ## Steps
 
+0. **Dashboard Project Setup (Pre-VOC)**
+   - Check if Jun.AI Dashboard is running on localhost:7700
+   - If not running, start it: `cd dashboard && npm start`
+   - Register the project via `POST /api/projects/setup`:
+     ```bash
+     curl -X POST http://localhost:7700/api/projects/setup \
+       -H 'Content-Type: application/json' \
+       -d '{"name":"[project name]","description":"[desc]","domain":"[domain]","phases":[0,1,2,3,4,5,6,7,8,9,10,11]}'
+     ```
+   - This auto-creates: project entry + 12 PDLC phase tasks in To Do column
+   - Set the dashboard project filter to the new project
+   - Report setup confirmation to user
+
 1. **Determine Scope**
    - Read the user's product/project description
    - Identify the target scope: full lifecycle, partial phase range, or single phase
