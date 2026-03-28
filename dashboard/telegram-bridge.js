@@ -249,6 +249,7 @@ bot.onText(/\/sessions/, async (msg) => {
 // --- Message Handler (text → project chat) ---
 bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
+  console.log(`  [MSG] from ${msg.chat.id}: ${msg.text.substring(0, 50)}`);
 
   const user = getUser(msg.chat.id);
   if (!user.activeProject) {
@@ -453,10 +454,24 @@ bot.on('callback_query', async (query) => {
 });
 
 // --- WebSocket: Listen for agent responses + notifications ---
-function connectWS() {
-  const ws = new WebSocket('ws://localhost:7700/ws');
+let _wsConnected = false;
+let _wsRetryCount = 0;
 
-  ws.on('open', () => { console.log('  ✓ WebSocket connected to dashboard'); });
+function connectWS() {
+  let ws;
+  try {
+    ws = new WebSocket('ws://localhost:7700/ws');
+  } catch (e) {
+    console.log(`  [WS] Connection failed, retry in 5s...`);
+    setTimeout(connectWS, 5000);
+    return;
+  }
+
+  ws.on('open', () => {
+    _wsConnected = true;
+    _wsRetryCount = 0;
+    console.log('  ✓ WebSocket connected to dashboard');
+  });
 
   ws.on('message', (raw) => {
     try {
@@ -497,14 +512,39 @@ function connectWS() {
   });
 
   ws.on('close', () => {
-    console.log('  ✗ WebSocket disconnected, reconnecting in 5s...');
-    setTimeout(connectWS, 5000);
+    _wsConnected = false;
+    _wsRetryCount++;
+    const delay = Math.min(5000 * _wsRetryCount, 30000); // 5s, 10s, 15s... max 30s
+    console.log(`  ✗ WebSocket disconnected, reconnecting in ${delay/1000}s... (attempt ${_wsRetryCount})`);
+    setTimeout(connectWS, delay);
   });
 
-  ws.on('error', () => { /* reconnect handled by close */ });
+  ws.on('error', (err) => {
+    // Don't log every error — close event will handle reconnect
+    if (!_wsConnected) return;
+    console.log(`  [WS ERROR] ${err.message || ''}`);
+  });
 }
 
-connectWS();
+// Start WS with retry — wait for server to be ready
+function startWS() {
+  const http = require('http');
+  const check = () => {
+    http.get('http://localhost:7700/api/status', (res) => {
+      if (res.statusCode === 200) {
+        connectWS();
+      } else {
+        setTimeout(check, 3000);
+      }
+    }).on('error', () => {
+      console.log('  [WS] Dashboard not ready, retry in 3s...');
+      setTimeout(check, 3000);
+    });
+  };
+  check();
+}
+
+startWS();
 
 // --- Utility ---
 function escTg(text) {

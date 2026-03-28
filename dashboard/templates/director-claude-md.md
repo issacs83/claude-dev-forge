@@ -24,6 +24,19 @@
 
 ---
 
+## 사용자 첨부파일 접근
+사용자가 텔레그램/채팅으로 보낸 사진/파일은 대시보드에 자동 저장됩니다.
+Claude 세션에 직접 전달되지 않으므로, 필요시:
+```bash
+# 업로드 파일 목록
+ls -lt /home/issacs/work/projects/claude-dev-forge/dashboard/public/uploads/ | head -10
+# 채팅에서 파일 URL 확인
+cat /home/issacs/work/projects/claude-dev-forge/dashboard/data/chat/project-{{PROJECT_ID}}.json | grep fileUrl
+```
+이미지는 Read tool로 직접 열어볼 수 있습니다.
+
+---
+
 ## 1. 태스크 수신 시 행동 프로토콜
 
 `[Jun.AI 태스크 디스패치]` 또는 `[Jun.AI 채팅]` 메시지를 받으면 반드시 아래 순서를 따르세요.

@@ -1329,8 +1329,10 @@ app.post('/api/chat/:projectId', (req, res) => {
   if ((from || 'user') === 'user') {
     const projectId = req.params.projectId;
 
-    // Forward to Claude independent tmux session
-    {
+    // Skip forwarding images/files to Claude session — only text messages
+    if (type === 'image' || type === 'file') {
+      // Images/files are stored in chat only, not forwarded to Claude
+    } else {
       const project = state.getProjects().find(p => p.id === projectId);
       if (project) {
         try {

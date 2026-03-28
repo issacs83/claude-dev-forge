@@ -408,6 +408,77 @@ let _isDragging = false;
     e.dataTransfer.setData('text/plain', _draggedTaskId);
   });
 
+  // --- Android Touch Drag (Android doesn't support HTML5 drag on touch) ---
+  const isAndroid = /android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    let _tdCard = null, _tdClone = null, _tdId = null;
+    let _tdStartX = 0, _tdStartY = 0, _tdActive = false, _tdTimer = null;
+
+    board.addEventListener('touchstart', (e) => {
+      const card = e.target.closest('.task-card');
+      if (!card) return;
+      _tdCard = card;
+      _tdId = card.dataset.id;
+      _tdActive = false;
+      const t = e.touches[0];
+      _tdStartX = t.clientX;
+      _tdStartY = t.clientY;
+
+      _tdTimer = setTimeout(() => {
+        _tdActive = true;
+        _isDragging = true;
+        if (navigator.vibrate) navigator.vibrate(30);
+        const r = card.getBoundingClientRect();
+        _tdClone = document.createElement('div');
+        _tdClone.innerHTML = card.outerHTML;
+        _tdClone.style.cssText = `position:fixed;z-index:3000;pointer-events:none;opacity:0.9;left:${r.left}px;top:${r.top}px;width:${r.width}px;transform:rotate(1deg) scale(1.03);box-shadow:0 8px 24px rgba(0,0,0,0.5);border-radius:8px;`;
+        document.body.appendChild(_tdClone);
+        card.style.opacity = '0.2';
+      }, 350);
+    }, { passive: true });
+
+    document.addEventListener('touchmove', (e) => {
+      if (!_tdActive && _tdTimer) {
+        const t = e.touches[0];
+        if (Math.abs(t.clientX - _tdStartX) > 10 || Math.abs(t.clientY - _tdStartY) > 10) {
+          clearTimeout(_tdTimer); _tdTimer = null; _tdCard = null; _tdId = null;
+          return;
+        }
+      }
+      if (!_tdActive || !_tdClone) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      _tdClone.style.left = (t.clientX - _tdClone.offsetWidth / 2) + 'px';
+      _tdClone.style.top = (t.clientY - 20) + 'px';
+      _tdClone.style.visibility = 'hidden';
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      _tdClone.style.visibility = '';
+      document.querySelectorAll('.kanban-column').forEach(c => c.style.outline = '');
+      const col = el ? el.closest('.kanban-column') : null;
+      if (col) col.style.outline = '2px solid var(--accent-blue)';
+      if (t.clientY < 60) window.scrollBy(0, -5);
+      if (t.clientY > window.innerHeight - 60) window.scrollBy(0, 5);
+    }, { passive: false });
+
+    document.addEventListener('touchend', (e) => {
+      if (_tdTimer) { clearTimeout(_tdTimer); _tdTimer = null; }
+      if (_tdActive && _tdId) {
+        const t = e.changedTouches[0];
+        if (_tdClone) { _tdClone.style.visibility = 'hidden'; }
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        if (_tdClone) { _tdClone.remove(); _tdClone = null; }
+        if (_tdCard) { _tdCard.style.opacity = '1'; }
+        document.querySelectorAll('.kanban-column').forEach(c => c.style.outline = '');
+        const col = el ? el.closest('.kanban-column') : null;
+        if (col && col.dataset.status) moveTask(_tdId, col.dataset.status);
+        setTimeout(() => { _isDragging = false; }, 200);
+      }
+      _tdCard = null; _tdId = null; _tdActive = false;
+    });
+
+    console.log('Jun.AI: Android touch drag initialized');
+  }
+
   console.log('Jun.AI: Drag-and-drop + click initialized');
 })();
 
@@ -2580,11 +2651,14 @@ function toggleTerminalExpand() {
   termExpanded = !termExpanded;
 
   if (termExpanded) {
+    const isMobile = window.innerWidth <= 768;
+    const gap = isMobile ? '4px' : '16px';
+    const topGap = isMobile ? '50px' : '60px';
     panel.style.position = 'fixed';
-    panel.style.top = '60px';
-    panel.style.left = '16px';
-    panel.style.right = '16px';
-    panel.style.bottom = '16px';
+    panel.style.top = topGap;
+    panel.style.left = gap;
+    panel.style.right = gap;
+    panel.style.bottom = gap;
     panel.style.zIndex = '999';
     panel.style.margin = '0';
     container.style.height = 'calc(100% - 40px)';

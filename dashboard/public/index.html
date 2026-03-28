@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Jun.AI - PDLC Dashboard</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
@@ -121,15 +121,15 @@
 
   <!-- Interactive Terminal Panel -->
   <div class="agent-panel" id="terminalPanel">
-    <div class="panel-header">
+    <div class="panel-header" style="flex-wrap:wrap;gap:6px">
       <span>Terminal</span>
-      <div style="display:flex;gap:8px;align-items:center">
-        <select id="terminalSessionSelect" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:12px" onchange="connectTerminal()">
-          <option value="">-- select session --</option>
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;min-width:0;flex:1;justify-content:flex-end">
+        <select id="terminalSessionSelect" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:3px 4px;font-size:11px;min-width:0;flex:1;max-width:180px" onchange="connectTerminal()">
+          <option value="">-- session --</option>
         </select>
-        <span id="terminalStatus" style="font-size:10px;color:var(--text-muted)"></span>
-        <button onclick="disconnectTerminal()" style="background:var(--accent-red,#e74c3c);color:white;border:none;padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Disconnect">✕</button>
-        <button onclick="toggleTerminalExpand()" id="terminalExpandBtn" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);padding:2px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Expand">⛶</button>
+        <span id="terminalStatus" style="font-size:9px;color:var(--text-muted);white-space:nowrap"></span>
+        <button onclick="disconnectTerminal()" style="background:var(--accent-red,#e74c3c);color:white;border:none;padding:3px 6px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Disconnect">✕</button>
+        <button onclick="toggleTerminalExpand()" id="terminalExpandBtn" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);padding:3px 6px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Expand">⛶</button>
       </div>
     </div>
     <div id="terminalContainer" style="background:#0a0e14;height:350px;padding:4px;overflow:hidden"></div>
