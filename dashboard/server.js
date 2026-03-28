@@ -555,6 +555,16 @@ app.post('/api/tasks', (req, res) => {
 app.patch('/api/tasks/:id', (req, res) => {
   const oldTask = state.getTask(req.params.id);
   const oldStatus = oldTask ? oldTask.status : null;
+
+  // GUARD: prevent done/approved tasks from being moved backwards
+  if (oldTask && oldTask.status === 'done' && req.body.status && req.body.status !== 'done') {
+    // Only allow done→other if explicitly requested by user (not auto-dispatch)
+    const isUserAction = req.headers['x-user-action'] === 'true';
+    if (!isUserAction) {
+      return res.json(oldTask); // Silently ignore — don't change status
+    }
+  }
+
   const task = state.updateTask(req.params.id, req.body);
   if (!task) return res.status(404).json({ error: 'Task not found' });
   broadcast({ type: 'task_updated', data: task });

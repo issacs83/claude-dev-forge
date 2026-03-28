@@ -1,4 +1,16 @@
 // Jun.AI — Dashboard Client
+// Hide chat widget when modal is open (Samsung browser :has() fallback)
+function setChatWidgetVisible(show) {
+  const cw = document.getElementById('chatWidget');
+  if (cw) cw.style.display = show ? '' : 'none';
+}
+// MutationObserver: auto-hide chatWidget when .task-modal-overlay exists
+const _modalObs = new MutationObserver(() => {
+  setChatWidgetVisible(!document.querySelector('.task-modal-overlay'));
+});
+document.addEventListener('DOMContentLoaded', () => {
+  _modalObs.observe(document.body, { childList: true });
+});
 let ws = null;
 let state = { tasks: [], agents: {}, phases: [], documents: [], stats: {}, phaseProgress: 0 };
 let activeRoleFilter = 'all';
@@ -122,11 +134,18 @@ function renderProjects() {
 }
 
 function renderStats() {
-  const s = state.stats || {};
-  document.getElementById('statTotal').textContent = s.total || 0;
-  document.getElementById('statActive').textContent = s.active || 0;
-  document.getElementById('statDone').textContent = s.done || 0;
-  document.getElementById('statRate').textContent = (s.rate || 0) + '%';
+  let tasks = state.tasks || [];
+  if (activeProjectFilter !== 'all') {
+    tasks = tasks.filter(t => t.project === activeProjectFilter);
+  }
+  const total = tasks.length;
+  const active = tasks.filter(t => t.status === 'in_progress' || t.status === 'claimed').length;
+  const done = tasks.filter(t => t.status === 'done').length;
+  const rate = total > 0 ? Math.round(done / total * 100) : 0;
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statActive').textContent = active;
+  document.getElementById('statDone').textContent = done;
+  document.getElementById('statRate').textContent = rate + '%';
 }
 
 function renderPhases() {
@@ -258,9 +277,9 @@ function renderCard(task) {
     `;
   }
 
-  // Health status indicator
+  // Health status indicator (only for non-done tasks)
   let healthHTML = '';
-  const hs = task._healthStatus;
+  const hs = task.status !== 'done' ? task._healthStatus : null;
   if (hs === 'timeout') {
     healthHTML = `<div class="health-badge health-timeout">⏱ 타임아웃 — 무응답으로 복귀됨</div>`;
   } else if (hs === 'stale') {
@@ -607,7 +626,7 @@ async function moveTask(taskId, newStatus) {
   // Update task status
   const res = await fetch('/api/tasks/' + taskId, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-User-Action': 'true' },
     body: JSON.stringify({ status: newStatus })
   });
   const updated = await res.json();
@@ -982,7 +1001,7 @@ async function openTaskDetail(taskId) {
 async function changeTaskStatus(taskId, newStatus) {
   await fetch('/api/tasks/' + taskId, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-User-Action': 'true' },
     body: JSON.stringify({ status: newStatus })
   });
   document.querySelector('.task-modal-overlay')?.remove();
