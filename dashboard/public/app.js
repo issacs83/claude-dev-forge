@@ -1637,8 +1637,37 @@ function toggleChat() {
   _chatOpen = !_chatOpen;
   const panel = document.getElementById('chatPanel');
   panel.style.display = _chatOpen ? 'flex' : 'none';
-  if (_chatOpen) loadChatHistory();
+  if (_chatOpen) {
+    loadChatHistory();
+    updateChatConnStatus();
+  }
 }
+
+async function updateChatConnStatus() {
+  const el = document.getElementById('chatConnStatus');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/sessions');
+    const sessions = await res.json();
+    const hasClaude = sessions.some(s => s.command === 'claude');
+    if (hasClaude) {
+      el.textContent = '● Connected';
+      el.style.color = 'var(--accent-green)';
+      el.style.background = 'rgba(34,197,94,0.1)';
+    } else {
+      el.textContent = '● Disconnected';
+      el.style.color = 'var(--accent-red)';
+      el.style.background = 'rgba(239,68,68,0.1)';
+    }
+  } catch (e) {
+    el.textContent = '● Disconnected';
+    el.style.color = 'var(--accent-red)';
+    el.style.background = 'rgba(239,68,68,0.1)';
+  }
+}
+
+// Refresh connection status every 5s when chat is open
+setInterval(() => { if (_chatOpen) updateChatConnStatus(); }, 5000);
 
 async function loadChatHistory() {
   const pid = activeProjectFilter === 'all' ? (state.projects && state.projects[0] ? state.projects[0].id : '1') : activeProjectFilter;
@@ -1699,43 +1728,58 @@ async function sendChatMessage() {
   const msg = input.value.trim();
   const pid = activeProjectFilter === 'all' ? (state.projects && state.projects[0] ? state.projects[0].id : '1') : activeProjectFilter;
 
-  if (_chatPendingFile) {
-    // Upload file first
-    const uploadRes = await fetch('/api/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(_chatPendingFile)
-    });
-    const uploadData = await uploadRes.json();
+  if (!msg && !_chatPendingFile) return;
 
-    if (uploadData.ok) {
+  // Show typing indicator
+  const typingEl = document.getElementById('chatTyping');
+  if (typingEl) typingEl.style.display = 'block';
+
+  try {
+    if (_chatPendingFile) {
+      const uploadRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(_chatPendingFile)
+      });
+      const uploadData = await uploadRes.json();
+
+      if (uploadData.ok) {
+        await fetch('/api/chat/' + pid, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'user',
+            message: msg,
+            type: _chatPendingFile.type === 'image' ? 'image' : 'file',
+            fileName: _chatPendingFile.fileName,
+            fileUrl: uploadData.url
+          })
+        });
+      }
+      _chatPendingFile = null;
+      document.getElementById('chatPreview').style.display = 'none';
+      document.getElementById('chatPreview').innerHTML = '';
+    } else {
       await fetch('/api/chat/' + pid, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: 'user',
-          message: msg,
-          type: _chatPendingFile.type === 'image' ? 'image' : 'file',
-          fileName: _chatPendingFile.fileName,
-          fileUrl: uploadData.url
-        })
+        body: JSON.stringify({ from: 'user', message: msg })
       });
     }
-    _chatPendingFile = null;
-    document.getElementById('chatPreview').style.display = 'none';
-    document.getElementById('chatPreview').innerHTML = '';
-  } else if (msg) {
-    await fetch('/api/chat/' + pid, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: 'user', message: msg })
-    });
-  } else {
-    return;
-  }
 
-  input.value = '';
-  loadChatHistory();
+    input.value = '';
+    await loadChatHistory();
+
+    // Show "waiting for response" after send
+    if (typingEl) {
+      typingEl.innerHTML = '<span class="spinner" style="margin-right:4px"></span>에이전트 응답 대기 중...';
+      // Auto-hide after 30s if no response
+      setTimeout(() => { if (typingEl) typingEl.style.display = 'none'; }, 30000);
+    }
+  } catch (e) {
+    showInfoNotification('전송 실패', '메시지 전송에 실패했습니다. 연결 상태를 확인하세요.');
+    if (typingEl) typingEl.style.display = 'none';
+  }
 }
 
 // Paste image from clipboard
@@ -1794,6 +1838,11 @@ function handleChatFile(input) {
 // WebSocket: listen for chat messages
 function handleChatWS(msg) {
   if (msg.type === 'chat_message' && _chatOpen) {
+    // Hide typing indicator when response arrives
+    const typingEl = document.getElementById('chatTyping');
+    if (typingEl && msg.data && msg.data.message && msg.data.message.from !== 'user') {
+      typingEl.style.display = 'none';
+    }
     loadChatHistory();
   }
 }
