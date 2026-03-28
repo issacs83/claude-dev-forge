@@ -164,7 +164,9 @@ function togglePhaseFilter(phaseId) {
   renderKanban();
 }
 
+let _blockRender = false;
 function renderKanban() {
+  if (_blockRender) return;
   const cols = {
     todo: [], hold: [], claimed: [], in_progress: [], review: [], done: []
   };
@@ -408,9 +410,150 @@ let _isDragging = false;
     e.dataTransfer.setData('text/plain', _draggedTaskId);
   });
 
-  // Mobile (Android/iOS): tap card → open modal → use status buttons to move
-  // No touch drag — it causes ghost clones and scroll interference
-  console.log('Jun.AI: Mobile uses tap → modal → status buttons for task movement');
+  // --- Android Touch Drag v4 (real drag-and-drop) ---
+  const isAndroid = /android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    let _td = { id: null, active: false, timer: null, el: null, startX: 0, startY: 0, origRect: null, placeholder: null };
+
+    function tdCleanup() {
+      if (_td.el) {
+        _td.el.style.position = '';
+        _td.el.style.left = '';
+        _td.el.style.top = '';
+        _td.el.style.width = '';
+        _td.el.style.zIndex = '';
+        _td.el.style.opacity = '';
+        _td.el.style.transform = '';
+        _td.el.style.pointerEvents = '';
+        _td.el.style.boxShadow = '';
+        _td.el.style.transition = '';
+      }
+      if (_td.placeholder && _td.placeholder.parentNode) {
+        _td.placeholder.remove();
+      }
+      document.querySelectorAll('.kanban-column').forEach(c => {
+        c.style.outline = '';
+        c.style.background = '';
+      });
+      document.body.style.overflow = '';
+      document.body.style.touchAction = '';
+      document.documentElement.style.overflow = '';
+      _td.el = null; _td.id = null; _td.active = false; _td.placeholder = null;
+      _isDragging = false;
+      _blockRender = false;
+    }
+
+    board.addEventListener('touchstart', (e) => {
+      const card = e.target.closest('.task-card');
+      if (!card) return;
+      const t = e.touches[0];
+      _td.startX = t.clientX;
+      _td.startY = t.clientY;
+      _td.el = card;
+      _td.id = card.dataset.id;
+      _td.active = false;
+
+      _td.timer = setTimeout(() => {
+        if (!_td.el) return;
+        _td.active = true;
+        _isDragging = true;
+        _blockRender = true; // Prevent re-render during drag
+        if (navigator.vibrate) navigator.vibrate(40);
+
+        // Lock scroll
+        document.body.style.overflow = 'hidden';
+        document.body.style.touchAction = 'none';
+        document.documentElement.style.overflow = 'hidden';
+
+        // Save original position and size
+        _td.origRect = card.getBoundingClientRect();
+
+        // Create placeholder to keep space
+        _td.placeholder = document.createElement('div');
+        _td.placeholder.style.cssText = `height:${_td.origRect.height}px;border:2px dashed var(--accent-blue);border-radius:8px;opacity:0.3;`;
+        card.parentNode.insertBefore(_td.placeholder, card);
+
+        // Lift the card
+        card.style.position = 'fixed';
+        card.style.left = _td.origRect.left + 'px';
+        card.style.top = _td.origRect.top + 'px';
+        card.style.width = _td.origRect.width + 'px';
+        card.style.zIndex = '5000';
+        card.style.opacity = '0.92';
+        card.style.transform = 'rotate(2deg) scale(1.05)';
+        card.style.pointerEvents = 'none';
+        card.style.boxShadow = '0 12px 40px rgba(0,0,0,0.6)';
+        card.style.transition = 'none';
+      }, 400);
+    }, { passive: true });
+
+    document.addEventListener('touchmove', (e) => {
+      // Cancel hold if moved before activation
+      if (_td.timer && !_td.active) {
+        const t = e.touches[0];
+        if (Math.abs(t.clientX - _td.startX) > 8 || Math.abs(t.clientY - _td.startY) > 8) {
+          clearTimeout(_td.timer); _td.timer = null;
+          _td.el = null; _td.id = null;
+          return;
+        }
+      }
+      if (!_td.active || !_td.el) return;
+      e.preventDefault();
+
+      const t = e.touches[0];
+      const dx = t.clientX - _td.startX;
+      const dy = t.clientY - _td.startY;
+      _td.el.style.left = (_td.origRect.left + dx) + 'px';
+      _td.el.style.top = (_td.origRect.top + dy) + 'px';
+
+      // Highlight drop target
+      _td.el.style.display = 'none';
+      const under = document.elementFromPoint(t.clientX, t.clientY);
+      _td.el.style.display = '';
+      document.querySelectorAll('.kanban-column').forEach(c => {
+        c.style.outline = '';
+        c.style.background = '';
+      });
+      const col = under ? under.closest('.kanban-column') : null;
+      if (col) {
+        col.style.outline = '2px solid var(--accent-blue)';
+        col.style.background = 'rgba(59,130,246,0.08)';
+      }
+    }, { passive: false });
+
+    document.addEventListener('touchend', (e) => {
+      if (_td.timer) { clearTimeout(_td.timer); _td.timer = null; }
+      if (!_td.active || !_td.el) {
+        _td.el = null; _td.id = null;
+        return;
+      }
+
+      const t = e.changedTouches[0];
+      const taskId = _td.id;
+
+      // Find drop target
+      _td.el.style.display = 'none';
+      const under = document.elementFromPoint(t.clientX, t.clientY);
+      _td.el.style.display = '';
+
+      const col = under ? under.closest('.kanban-column') : null;
+
+      // Cleanup first
+      tdCleanup();
+
+      // Then move if valid target
+      if (col && col.dataset.status && taskId) {
+        moveTask(taskId, col.dataset.status);
+      }
+    });
+
+    document.addEventListener('touchcancel', () => {
+      if (_td.timer) { clearTimeout(_td.timer); _td.timer = null; }
+      tdCleanup();
+    });
+
+    console.log('Jun.AI: Android touch drag v4 (real drag)');
+  }
 
   console.log('Jun.AI: Drag-and-drop + click initialized');
 })();

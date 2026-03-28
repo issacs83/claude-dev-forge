@@ -213,6 +213,17 @@ setInterval(() => {
     }
   });
 
+  // Auto-complete agents whose tasks are already done
+  tasks.forEach(task => {
+    if (task.status !== 'done' || !task.agent) return;
+    const agent = agents[task.agent];
+    if (agent && agent.status === 'running') {
+      agent.status = 'completed';
+      agent.progress = 100;
+      agent.completedAt = new Date().toISOString();
+    }
+  });
+
 }, 30000); // Check every 30 seconds
 
 // Pending message queue — retry when Claude session becomes idle
