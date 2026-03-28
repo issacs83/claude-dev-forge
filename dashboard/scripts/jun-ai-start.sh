@@ -43,7 +43,18 @@ for p in data.get('projects', []):
     done
 fi
 
-# --- 3. Verify ---
+# --- 3. Main bot session (claude-dev-forge + telegram plugin) ---
+MAIN_SESSION="JunAIBot"
+MAIN_DIR="/home/issacs/work/projects/claude-dev-forge"
+MAIN_CMD="claude --resume --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official"
+if ! tmux has-session -t "$MAIN_SESSION" 2>/dev/null; then
+    tmux new-session -d -s "$MAIN_SESSION" -c "$MAIN_DIR" "$MAIN_CMD"
+    echo "[$(date)] Main bot session created: $MAIN_SESSION" >> "$LOG_DIR/startup.log"
+else
+    echo "[$(date)] Main bot session exists: $MAIN_SESSION" >> "$LOG_DIR/startup.log"
+fi
+
+# --- 4. Verify ---
 echo "[$(date)] === Verification ===" >> "$LOG_DIR/startup.log"
 pm2 status >> "$LOG_DIR/startup.log" 2>&1
 CLAUDE_SESSIONS=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^jun-' | wc -l)
