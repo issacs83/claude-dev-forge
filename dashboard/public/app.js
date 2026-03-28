@@ -1018,7 +1018,10 @@ function renderDocuments() {
       const fileUrl = d.file ? '/files/' + encodeURI(d.file) : '#';
       html += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0 3px 16px;font-size:12px">
         <span>${icon}</span>
-        <a href="${fileUrl}" target="_blank" style="flex:1;color:var(--text-primary);text-decoration:none" onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-primary)'">${escapeHtml(fileName)}</a>
+        <a href="${fileUrl}" target="_blank" style="flex:1;color:var(--text-primary);text-decoration:none;cursor:pointer"
+           onmouseover="this.style.color='var(--accent-blue)'"
+           onmouseout="this.style.color='var(--text-primary)'"
+           onclick="event.preventDefault();openFile('${fileUrl}','${escapeHtml(fileName)}')">${escapeHtml(fileName)}</a>
         <span style="color:${catColor};font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(100,116,139,0.1)">${catLabel}</span>
         <span style="color:var(--text-muted);font-size:10px">${getTimeAgo(d.createdAt)}</span>
       </div>`;
@@ -1397,6 +1400,20 @@ function dismissNotification(id) {
   if (el) {
     el.style.animation = 'fadeOut 0.3s ease-out';
     setTimeout(() => el.remove(), 300);
+  }
+}
+
+// --- File Viewer ---
+async function openFile(url, fileName) {
+  try {
+    const res = await fetch(url, { method: 'HEAD' });
+    if (res.ok) {
+      window.open(url, '_blank');
+    } else {
+      showInfoNotification('파일 미생성', `"${fileName}" 파일이 아직 생성되지 않았습니다. 에이전트 작업 완료 후 생성됩니다.`);
+    }
+  } catch (e) {
+    showInfoNotification('파일 미생성', `"${fileName}" 파일이 아직 생성되지 않았습니다.`);
   }
 }
 

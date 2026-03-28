@@ -131,7 +131,35 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
 // Serve project output files (for download/view)
-app.use('/files', express.static('/home/issacs/sessions'));
+// Try multiple paths: sessions dir, project dirs, absolute path
+app.get('/files/*', (req, res) => {
+  const filePath = decodeURIComponent(req.params[0]);
+  const tryPaths = [
+    path.join('/home/issacs/sessions', filePath),
+    path.join('/home/issacs/work', filePath),
+    filePath.startsWith('/') ? filePath : path.join('/home/issacs', filePath)
+  ];
+
+  // Also try inside each project dir
+  const projects = state.getProjects();
+  projects.forEach(p => {
+    if (p.projectDir) {
+      tryPaths.push(path.join(p.projectDir, filePath));
+    }
+  });
+
+  for (const p of tryPaths) {
+    if (fs.existsSync(p)) {
+      return res.sendFile(p);
+    }
+  }
+
+  res.status(404).json({
+    error: 'File not found',
+    message: `"${filePath}" 파일이 아직 생성되지 않았습니다. 에이전트가 작업을 완료하면 파일이 생성됩니다.`,
+    searchedPaths: tryPaths
+  });
+});
 
 // Clean orphan documents on startup
 setTimeout(() => {
