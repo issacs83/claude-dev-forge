@@ -122,6 +122,43 @@ setInterval(() => {
 
 }, 30000); // Check every 30 seconds
 
+// Pending message queue — retry when Claude session becomes idle
+setInterval(() => {
+  if (!state._pendingMessages || !state._pendingMessages.length) return;
+  const pending = [...state._pendingMessages];
+  state._pendingMessages = [];
+
+  pending.forEach(pm => {
+    try {
+      const paneContent = execSync(`tmux capture-pane -t work:${pm.windowName} -p -S -3 2>/dev/null`, { encoding: 'utf-8' });
+      const isIdle = paneContent.includes('❯') || paneContent.includes('> ') || paneContent.trim().endsWith('>');
+      if (isIdle) {
+        const instruction = `[Jun.AI 대기 메시지] ${pm.message}. 응답은 curl -s -X POST http://58.29.21.11:7700/api/chat/${pm.projectId} -H 'Content-Type: application/json' -d '{"from":"project-director","message":"응답"}' 으로 보내주세요.`;
+        const escaped = instruction.replace(/"/g, '\\"');
+        exec(`tmux send-keys -t work:${pm.windowName} "${escaped}" Enter`);
+
+        // Notify user
+        const chatFile = path.join(CHAT_DIR, `project-${pm.projectId}.json`);
+        let msgs = [];
+        try { if (fs.existsSync(chatFile)) msgs = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
+        const deliveredMsg = {
+          id: String(Date.now()), from: 'project-director',
+          message: `✅ 대기 메시지가 Claude 세션에 전달되었습니다: "${pm.message}"`,
+          type: 'text', fileName: null, fileUrl: null, timestamp: new Date().toISOString()
+        };
+        msgs.push(deliveredMsg);
+        fs.writeFileSync(chatFile, JSON.stringify(msgs, null, 2), 'utf-8');
+        broadcast({ type: 'chat_message', data: { projectId: pm.projectId, message: deliveredMsg } });
+      } else {
+        // Still busy → re-queue
+        state._pendingMessages.push(pm);
+      }
+    } catch (e) {
+      state._pendingMessages.push(pm); // retry next cycle
+    }
+  });
+}, 15000); // Check every 15 seconds
+
 // Save on process exit
 process.on('SIGINT', () => { state.save(DATA_FILE); process.exit(0); });
 process.on('SIGTERM', () => { state.save(DATA_FILE); process.exit(0); });
@@ -935,31 +972,85 @@ app.post('/api/chat/:projectId', (req, res) => {
       }, 1500);
     }
 
-    // 2. Forward to Claude tmux session
-    const project = state.getProjects().find(p => p.id === projectId);
-    if (project) {
-      try {
-        const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
-        const lines = sessions.trim().split('\n');
-        const safeName = project.sessionName || 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
-        let target = lines.find(l => l.startsWith(safeName + '|'));
-        if (!target) target = lines.find(l => l.includes('|claude'));
-        if (target) {
-          const windowName = target.split('|')[0];
-          let instruction = '';
-          if (type === 'image' && fileUrl) {
-            instruction = `[Jun.AI 채팅 — 이미지] 사용자가 이미지를 보냈습니다: http://58.29.21.11:7700${fileUrl}`;
-            if (message) instruction += ` 메시지: ${message}`;
-          } else if (type === 'file' && fileUrl) {
-            instruction = `[Jun.AI 채팅 — 파일] 사용자가 파일을 보냈습니다: ${fileName || 'file'} (http://58.29.21.11:7700${fileUrl})`;
-            if (message) instruction += ` 메시지: ${message}`;
+    // 2. Forward to Claude tmux session (if auto-response didn't cover it)
+    if (!autoResponse) {
+      const project = state.getProjects().find(p => p.id === projectId);
+      if (project) {
+        try {
+          const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
+          const lines = sessions.trim().split('\n');
+          const safeName = project.sessionName || 'jun-' + project.name.replace(/[^a-zA-Z0-9가-힣_-]/g, '').substring(0, 30);
+          let target = lines.find(l => l.startsWith(safeName + '|'));
+          if (!target) target = lines.find(l => l.includes('|claude'));
+
+          if (target) {
+            const windowName = target.split('|')[0];
+
+            // Check if Claude session is idle (waiting for input)
+            let isIdle = false;
+            try {
+              const paneContent = execSync(`tmux capture-pane -t work:${windowName} -p -S -3 2>/dev/null`, { encoding: 'utf-8' });
+              // Claude shows "❯" or ">" prompt when idle
+              isIdle = paneContent.includes('❯') || paneContent.includes('> ') || paneContent.trim().endsWith('>');
+            } catch (e) { isIdle = true; }
+
+            if (isIdle) {
+              // Session is idle → forward message
+              let instruction = '';
+              if (type === 'image' && fileUrl) {
+                instruction = `[Jun.AI 채팅] 사용자가 이미지를 보냈습니다: http://58.29.21.11:7700${fileUrl}`;
+                if (message) instruction += ` 메시지: ${message}`;
+              } else if (type === 'file' && fileUrl) {
+                instruction = `[Jun.AI 채팅] 사용자가 파일을 보냈습니다: ${fileName || 'file'} (http://58.29.21.11:7700${fileUrl})`;
+                if (message) instruction += ` 메시지: ${message}`;
+              } else {
+                instruction = `[Jun.AI 채팅] ${message}. 응답은 반드시 curl -s -X POST http://58.29.21.11:7700/api/chat/${projectId} -H 'Content-Type: application/json' -d '{"from":"project-director","message":"응답내용"}' 으로 보내주세요.`;
+              }
+              const escaped = instruction.replace(/"/g, '\\"');
+              exec(`tmux send-keys -t work:${windowName} "${escaped}" Enter`);
+            } else {
+              // Session is busy → queue message and notify user
+              setTimeout(() => {
+                const chatFile = path.join(CHAT_DIR, `project-${projectId}.json`);
+                let msgs = [];
+                try { if (fs.existsSync(chatFile)) msgs = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
+                const busyMsg = {
+                  id: String(Date.now()),
+                  from: 'project-director',
+                  message: `⏳ Claude 세션이 현재 다른 작업 중입니다. 메시지가 대기열에 추가되었습니다.\n작업 완료 후 자동으로 전달됩니다.\n\n대기 메시지: "${message}"`,
+                  type: 'text', fileName: null, fileUrl: null,
+                  timestamp: new Date().toISOString()
+                };
+                msgs.push(busyMsg);
+                if (msgs.length > 500) msgs = msgs.slice(-500);
+                fs.writeFileSync(chatFile, JSON.stringify(msgs, null, 2), 'utf-8');
+                broadcast({ type: 'chat_message', data: { projectId, message: busyMsg } });
+
+                // Store in pending queue for later delivery
+                if (!state._pendingMessages) state._pendingMessages = [];
+                state._pendingMessages.push({ projectId, windowName, message: message, type, fileUrl, fileName, timestamp: new Date().toISOString() });
+              }, 2000);
+            }
           } else {
-            instruction = `[Jun.AI 채팅] ${message}`;
+            // No session found
+            setTimeout(() => {
+              const chatFile = path.join(CHAT_DIR, `project-${projectId}.json`);
+              let msgs = [];
+              try { if (fs.existsSync(chatFile)) msgs = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
+              const noSessionMsg = {
+                id: String(Date.now()),
+                from: 'project-director',
+                message: `❌ Claude 세션이 없습니다. 대시보드에서 세션을 시작하거나, 자동 응답 키워드(상태, 에이전트, 할일, 산출물, 도움)를 사용해주세요.`,
+                type: 'text', fileName: null, fileUrl: null,
+                timestamp: new Date().toISOString()
+              };
+              msgs.push(noSessionMsg);
+              fs.writeFileSync(chatFile, JSON.stringify(msgs, null, 2), 'utf-8');
+              broadcast({ type: 'chat_message', data: { projectId, message: noSessionMsg } });
+            }, 2000);
           }
-          const escaped = instruction.replace(/"/g, '\\"');
-          exec(`tmux send-keys -t work:${windowName} "${escaped}" Enter`);
-        }
-      } catch (e) { /* ignore */ }
+        } catch (e) { /* ignore */ }
+      }
     }
   }
 
