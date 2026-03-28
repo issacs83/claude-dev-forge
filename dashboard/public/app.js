@@ -232,6 +232,7 @@ function renderCard(task) {
 function onDragStart(event) {
   event.dataTransfer.setData('text/plain', event.target.dataset.id);
   event.target.classList.add('dragging');
+  event.stopPropagation();
 }
 
 function allowDrop(event) {
@@ -243,7 +244,8 @@ function onDragLeave(event) {
   event.currentTarget.classList.remove('drop-target');
 }
 
-function onDrop(event, newStatus) {
+// Column-level drop handler (from HTML inline events)
+function onColumnDrop(event, newStatus) {
   event.preventDefault();
   event.currentTarget.classList.remove('drop-target');
   const taskId = event.dataTransfer.getData('text/plain');
@@ -251,19 +253,135 @@ function onDrop(event, newStatus) {
   moveTask(taskId, newStatus);
 }
 
-function moveTask(taskId, newStatus) {
-  fetch('/api/tasks/' + taskId, {
+// Also handle drops on column-body (from renderKanban bindings)
+function onDrop(event, newStatus) {
+  event.preventDefault();
+  const taskId = event.dataTransfer.getData('text/plain');
+  if (!taskId) return;
+  moveTask(taskId, newStatus);
+}
+
+async function moveTask(taskId, newStatus) {
+  const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
+  if (!task) return;
+  const oldStatus = task.status;
+  if (oldStatus === newStatus) return;
+
+  // Update task status
+  const res = await fetch('/api/tasks/' + taskId, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: newStatus })
-  })
-  .then(r => r.json())
-  .then(task => {
-    if (newStatus === 'in_progress' && task.assignee) {
-      showAgentDispatch(task);
-    }
-    fetchAndRender();
   });
+  const updated = await res.json();
+
+  // If moved to in_progress → auto-dispatch agent
+  if (newStatus === 'in_progress' && updated.agent) {
+    await fetch('/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'agent_start',
+        agent: updated.agent,
+        phase: updated.phase,
+        task: updated.title,
+        timestamp: new Date().toISOString()
+      })
+    });
+    showInfoNotification('에이전트 실행', `"${updated.title}" → ${updated.agent} 에이전트가 작업을 시작합니다.`);
+  } else if (newStatus === 'in_progress' && !updated.agent) {
+    // No agent assigned — show assign modal
+    showAgentAssignForTask(taskId);
+  }
+
+  // If moved to done → mark agent as completed
+  if (newStatus === 'done' && updated.agent) {
+    await fetch('/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'agent_complete',
+        agent: updated.agent,
+        phase: updated.phase,
+        task: updated.title,
+        timestamp: new Date().toISOString()
+      })
+    });
+  }
+
+  fetchAndRender();
+}
+
+function showAgentAssignForTask(taskId) {
+  const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
+  if (!task) return;
+
+  const agentList = [
+    'project-director','web-developer','architect','planner','code-reviewer',
+    'security-reviewer','tdd-guide','verify-agent','build-error-resolver',
+    'e2e-tester','evaluator','bsp-engineer','firmware-engineer','circuit-engineer',
+    'hardware-engineer','algorithm-researcher','graphics-engineer','sdk-developer',
+    'devops-engineer','maintenance-engineer','product-strategist','regulatory-specialist',
+    'doc-manager','qa-engineer','voc-researcher','ux-designer','marketing-strategist',
+    'report-writer','presentation-writer','hwp-writer','spreadsheet-writer',
+    'paper-patent-researcher','data-engineer','labeling-manager','labeling-reviewer',
+    'ai-trainer','mlops-engineer','cuda-engineer','npu-engineer','inference-optimizer',
+    'reverse-engineer','retroactive-documenter','env-provisioner'
+  ];
+
+  const modal = document.createElement('div');
+  modal.className = 'task-modal-overlay';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div class="task-modal" style="max-width:420px;max-height:80vh;overflow-y:auto">
+      <h3>에이전트 배정</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
+        "<b>${escapeHtml(task.title)}</b>"를 실행할 에이전트를 선택하세요.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        ${agentList.map(a => {
+          const agents = state.agents || {};
+          const busy = agents[a] && agents[a].status === 'running';
+          return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-primary);border-radius:6px;cursor:pointer;transition:background 0.1s"
+                       onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-primary)'"
+                       onclick="assignAndDispatch('${taskId}','${a}');this.closest('.task-modal-overlay').remove()">
+            <span style="width:8px;height:8px;border-radius:50%;background:${busy ? 'var(--accent-orange)' : 'var(--accent-green)'}"></span>
+            <span style="font-size:13px;font-weight:500">${a}</span>
+            ${busy ? '<span style="font-size:11px;color:var(--text-muted)">(작업 중)</span>' : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      <button class="close-btn" onclick="this.closest('.task-modal-overlay').remove()">취소</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function assignAndDispatch(taskId, agentName) {
+  // Assign agent to task
+  await fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent: agentName, assignee: agentName, status: 'in_progress' })
+  });
+
+  const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
+
+  // Dispatch agent_start event
+  await fetch('/api/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'agent_start',
+      agent: agentName,
+      phase: task ? task.phase : undefined,
+      task: task ? task.title : '',
+      timestamp: new Date().toISOString()
+    })
+  });
+
+  showInfoNotification('에이전트 실행', `"${task ? task.title : ''}" → ${agentName} 에이전트가 작업을 시작합니다.`);
+  fetchAndRender();
 }
 
 // --- Card Click (full detail modal) ---
