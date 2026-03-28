@@ -2718,6 +2718,26 @@ function initTerminal() {
       }
       return false;
     }
+    // Shift+Up: scroll up in tmux copy-mode
+    if (ev.shiftKey && ev.key === 'ArrowUp' && ev.type === 'keydown') {
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        if (!_tmuxCopyMode) {
+          termWs.send('\x02['); // Enter copy-mode
+          _tmuxCopyMode = true;
+        }
+        termWs.send('\x1b[A\x1b[A\x1b[A'); // Up x3
+      }
+      return false;
+    }
+    // Shift+Down: scroll down in tmux copy-mode
+    if (ev.shiftKey && ev.key === 'ArrowDown' && ev.type === 'keydown') {
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        if (_tmuxCopyMode) {
+          termWs.send('\x1b[B\x1b[B\x1b[B'); // Down x3
+        }
+      }
+      return false;
+    }
     return true;
   });
 
