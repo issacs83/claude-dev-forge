@@ -1589,7 +1589,7 @@ server.listen(PORT, '0.0.0.0', () => {
   // Start bridge on server boot
   startBridge();
 
-  // Watchdog: check every 30s, restart if dead
+  // Watchdog: check every 10s, restart if dead (bridge is fragile)
   setInterval(() => {
     try {
       execSync('pgrep -f "node.*telegram-bridge" > /dev/null 2>&1');
@@ -1597,5 +1597,5 @@ server.listen(PORT, '0.0.0.0', () => {
       console.log(`  [${new Date().toISOString()}] Telegram bridge died — restarting...`);
       startBridge();
     }
-  }, 30000);
+  }, 10000); // 10초마다 체크
 });
