@@ -1740,6 +1740,19 @@ function renderChatMessages(messages, tabsHtml) {
     return;
   }
 
+  // Check if last message is from user (awaiting response)
+  const lastMsg = messages[messages.length - 1];
+  const awaitingResponse = lastMsg && lastMsg.from === 'user';
+  const typingEl = document.getElementById('chatTyping');
+  if (typingEl) {
+    if (awaitingResponse) {
+      typingEl.style.display = 'block';
+      typingEl.innerHTML = '<span class="spinner" style="margin-right:4px"></span>에이전트 응답 대기 중...';
+    } else {
+      typingEl.style.display = 'none';
+    }
+  }
+
   container.innerHTML = prefix + messages.map(m => {
     const isUser = m.from === 'user';
     const align = isUser ? 'flex-end' : 'flex-start';
