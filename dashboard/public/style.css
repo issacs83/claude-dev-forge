@@ -743,10 +743,11 @@ body {
 }
 @media (max-width: 768px) {
   .kanban-board {
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    padding: 8px 12px;
-    overflow-x: auto;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 4px !important;
+    padding: 4px !important;
+    overflow-x: hidden !important;
+    overflow: hidden !important;
   }
   .header {
     flex-direction: column;
@@ -796,27 +797,77 @@ body {
   /* Notifications */
   .notification-container { left: 8px; right: 8px; max-width: none; }
 
-  /* Header */
-  .header { flex-wrap: wrap; padding: 8px 12px; gap: 4px; }
-  .header-left { flex-shrink: 0; }
-  .header-right { flex-wrap: wrap; gap: 4px; font-size: 12px; }
-  .header-right .stat { font-size: 11px; }
-  .logo { font-size: 20px; }
+  /* Mobile: viewport lock — no overflow */
+  body {
+    overflow-x: hidden !important;
+    max-width: 100vw;
+    padding-bottom: 60px; /* space for tab bar */
+  }
+  * { max-width: 100vw; }
 
-  /* Panels */
-  .agent-panel, .doc-panel { margin: 0 4px 8px; max-width: 100vw; overflow-x: hidden; }
-  .panel-body { padding: 8px; overflow-x: hidden; }
+  /* Header compact */
+  .header { flex-wrap: wrap; padding: 6px 8px; gap: 2px; }
+  .header-left { flex-shrink: 0; }
+  .header-right { flex-wrap: wrap; gap: 2px; font-size: 11px; }
+  .header-right .stat { font-size: 10px; }
+  .header-right .btn-new-task { font-size: 11px; padding: 4px 8px; }
+  .logo { font-size: 18px; }
+
+  /* Filter bar compact */
+  .filter-bar { padding: 4px 8px; gap: 4px; }
+  .filter-left label, .filter-right label { font-size: 11px; }
+  .filter-select { font-size: 12px; max-width: 140px; }
+  .role-tab { font-size: 10px; padding: 2px 6px; }
+
+  /* Phase bar compact */
+  .phase-bar { padding: 4px 8px; }
+  .phase-block { font-size: 8px; min-width: 18px; padding: 2px; }
+
+  /* Panels — hidden by default on mobile, shown by tab */
+  .agent-panel, .doc-panel {
+    margin: 0 4px 8px;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+  .panel-body { padding: 6px; overflow-x: hidden; }
   .panel-header {
     flex-wrap: wrap;
-    gap: 6px;
-    padding: 8px 10px;
+    gap: 4px;
+    padding: 6px 8px;
   }
-  .panel-header > div {
-    flex-shrink: 1;
-    min-width: 0;
-    max-width: 100%;
-  }
-  .panel-header select { max-width: min(140px, 35vw); font-size: 11px; }
+  .panel-header > div { flex-shrink: 1; min-width: 0; max-width: 100%; }
+  .panel-header select { max-width: min(130px, 35vw); font-size: 11px; }
+
+  /* Hide sections by default — mobile tab switching */
+  body.mob-view-kanban #sessionPanel,
+  body.mob-view-kanban #terminalPanel,
+  body.mob-view-kanban #agentPanel,
+  body.mob-view-kanban .doc-panel { display: none !important; }
+
+  body.mob-view-terminal .filter-bar,
+  body.mob-view-terminal .phase-bar,
+  body.mob-view-terminal #bulkBar,
+  body.mob-view-terminal #kanbanBoard,
+  body.mob-view-terminal #sessionPanel,
+  body.mob-view-terminal #agentPanel,
+  body.mob-view-terminal .doc-panel { display: none !important; }
+  body.mob-view-terminal #terminalPanel { margin: 0; }
+  body.mob-view-terminal #terminalContainer { height: calc(100vh - 140px) !important; }
+
+  body.mob-view-agents .filter-bar,
+  body.mob-view-agents .phase-bar,
+  body.mob-view-agents #bulkBar,
+  body.mob-view-agents #kanbanBoard,
+  body.mob-view-agents #terminalPanel,
+  body.mob-view-agents .doc-panel { display: none !important; }
+
+  body.mob-view-docs .filter-bar,
+  body.mob-view-docs .phase-bar,
+  body.mob-view-docs #bulkBar,
+  body.mob-view-docs #kanbanBoard,
+  body.mob-view-docs #terminalPanel,
+  body.mob-view-docs #sessionPanel,
+  body.mob-view-docs #agentPanel { display: none !important; }
 
   /* Terminal — prevent overflow */
   #terminalPanel { overflow: hidden; }
@@ -825,29 +876,56 @@ body {
   /* Terminal fullscreen on mobile */
   #terminalPanel[style*="position: fixed"],
   #terminalPanel[style*="position:fixed"] {
-    left: 0 !important;
-    right: 0 !important;
-    top: 0 !important;
-    bottom: 0 !important;
-    border-radius: 0 !important;
-    margin: 0 !important;
+    left: 0 !important; right: 0 !important;
+    top: 0 !important; bottom: 0 !important;
+    border-radius: 0 !important; margin: 0 !important;
   }
 
-  /* Claude Sessions list — truncate long paths */
-  .panel-body div[style*="monospace"] { word-break: break-all; }
-
-  /* Kanban — horizontal scroll with snap */
+  /* Kanban — 2 columns grid, strict fit in viewport */
   .kanban-board {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scroll-snap-type: x mandatory;
-    padding-bottom: 8px;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 4px !important;
+    padding: 4px !important;
+    overflow-x: hidden !important;
+    overflow-y: auto;
+    max-width: 100vw;
+    box-sizing: border-box;
   }
   .kanban-column {
-    min-width: 75vw;
-    scroll-snap-align: start;
-    flex-shrink: 0;
+    min-width: 0 !important;
+    max-width: 100%;
+    min-height: 60px;
+    overflow: hidden;
   }
+  .column-header { padding: 6px 8px; font-size: 11px; }
+  .column-body { padding: 3px; min-height: 30px; overflow-y: auto; max-height: 50vh; }
+
+  /* Cards compact */
+  .task-card { padding: 8px; }
+  .card-title { font-size: 13px; word-break: break-word; }
+  .priority-badge { font-size: 9px; }
+  .role-badge { font-size: 10px; }
+
+  /* Modals */
+  .task-modal { min-width: unset !important; width: 95vw !important; max-width: 95vw !important; max-height: 85vh !important; }
+  .modal { min-width: unset !important; width: 92vw !important; }
+
+  /* Chat widget — above tab bar */
+  #chatWidget { bottom: 65px !important; }
+  #chatPanel { width: calc(100vw - 32px) !important; max-height: 60vh !important; }
+
+  /* Mobile tab bar */
+  #mobileTabBar { display: flex !important; }
+  .mob-tab {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; padding: 4px 8px; text-align: center;
+    transition: color 0.2s;
+  }
+  .mob-tab.active { color: var(--accent-blue); }
+
+  /* Sessions list compact */
+  .panel-body div[style*="monospace"] { word-break: break-all; font-size: 11px; }
 }
 
 /* Chat notification badge */

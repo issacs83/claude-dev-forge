@@ -111,16 +111,20 @@ setInterval(() => {
   const agents = state.agents || {};
 
   tasks.forEach(task => {
+    // Skip: not in_progress, no agent, done, or pending approval
     if (task.status !== 'in_progress') return;
     if (!task.agent) return;
+    if (task.approval && task.approval.status === 'pending') return;
 
     const agent = agents[task.agent];
     if (!agent) {
-      // Agent doesn't exist — mark as stale
       task._healthStatus = 'no_agent';
       task._healthMessage = `에이전트 "${task.agent}" 응답 없음 — 세션 미연결`;
       return;
     }
+
+    // Skip if agent already completed (will be handled by auto-done below)
+    if (agent.status === 'completed') return;
 
     if (agent.status === 'running') {
       const startedAt = new Date(agent.startedAt || task.updatedAt).getTime();
@@ -128,25 +132,18 @@ setInterval(() => {
       const progress = agent.progress || 0;
 
       if (progress === 0 && elapsed > TASK_TIMEOUT_MS) {
-        // No progress at all for 5 min → timeout
         task._healthStatus = 'timeout';
         task._healthMessage = `${Math.floor(elapsed/60000)}분 경과, 진행률 0% — 세션 미응답`;
 
         // Auto-revert to todo
-        const oldStatus = task.status;
         task.status = 'todo';
         task.updatedAt = new Date().toISOString();
         state._addHistory(task.id, 'timeout_revert', `타임아웃: ${Math.floor(elapsed/60000)}분 무응답 → todo 복귀`);
 
-        // Notification
-        broadcast({ type: 'agent_confirm', data: {
-          title: '⏱ 타임아웃',
-          message: `"${task.title}" — ${task.agent} 에이전트가 ${Math.floor(elapsed/60000)}분간 응답 없어 To Do로 복귀했습니다. 재시도하시겠습니까?`,
-          agent: task.agent,
-          task: task.title,
-          next_agent: task.agent,
-          next_task: task.title
-        }});
+        // Also reset the agent status to prevent re-triggering
+        agent.status = 'idle';
+        agent.progress = 0;
+
         broadcast({ type: 'state_update', data: state.getFullState() });
         saveState();
 

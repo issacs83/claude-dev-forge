@@ -333,6 +333,24 @@
     </div>
   </div>
 
+  <!-- Mobile Bottom Tab Bar -->
+  <nav id="mobileTabBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:1000;background:var(--bg-secondary);border-top:1px solid var(--border);padding:4px 0 max(4px,env(safe-area-inset-bottom))">
+    <div style="display:flex;justify-content:space-around;align-items:center">
+      <button class="mob-tab active" data-view="kanban" onclick="switchMobileView('kanban')">
+        <span style="font-size:18px">📋</span><span style="font-size:10px;display:block">Board</span>
+      </button>
+      <button class="mob-tab" data-view="terminal" onclick="switchMobileView('terminal')">
+        <span style="font-size:18px">🖥</span><span style="font-size:10px;display:block">Terminal</span>
+      </button>
+      <button class="mob-tab" data-view="agents" onclick="switchMobileView('agents')">
+        <span style="font-size:18px">🤖</span><span style="font-size:10px;display:block">Agents</span>
+      </button>
+      <button class="mob-tab" data-view="docs" onclick="switchMobileView('docs')">
+        <span style="font-size:18px">📄</span><span style="font-size:10px;display:block">Docs</span>
+      </button>
+    </div>
+  </nav>
+
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>

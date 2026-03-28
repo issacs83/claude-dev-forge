@@ -380,7 +380,7 @@ let _isDragging = false;
 
   // Click — open task detail or bulk select
   board.addEventListener('click', (e) => {
-    if (_isDragging) return;
+    if (_isDragging) { _isDragging = false; return; } // Reset and skip this one click
     const card = e.target.closest('.task-card');
     if (!card) return;
     const taskId = card.dataset.id;
@@ -414,6 +414,22 @@ let _isDragging = false;
     let _tdCard = null, _tdClone = null, _tdId = null;
     let _tdStartX = 0, _tdStartY = 0, _tdActive = false, _tdTimer = null;
 
+    // Lock/unlock body scroll for drag
+    function lockScroll() {
+      document.body.style.overflow = 'hidden';
+      document.body.style.touchAction = 'none';
+      document.documentElement.style.overflow = 'hidden';
+      document.documentElement.style.touchAction = 'none';
+      board.style.overflow = 'hidden';
+    }
+    function unlockScroll() {
+      document.body.style.overflow = '';
+      document.body.style.touchAction = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.touchAction = '';
+      board.style.overflow = '';
+    }
+
     board.addEventListener('touchstart', (e) => {
       const card = e.target.closest('.task-card');
       if (!card) return;
@@ -427,11 +443,13 @@ let _isDragging = false;
       _tdTimer = setTimeout(() => {
         _tdActive = true;
         _isDragging = true;
+        lockScroll(); // Prevent page scroll during drag
         if (navigator.vibrate) navigator.vibrate(30);
         const r = card.getBoundingClientRect();
+        const cloneW = Math.min(r.width, window.innerWidth * 0.45);
         _tdClone = document.createElement('div');
-        _tdClone.innerHTML = card.outerHTML;
-        _tdClone.style.cssText = `position:fixed;z-index:3000;pointer-events:none;opacity:0.9;left:${r.left}px;top:${r.top}px;width:${r.width}px;transform:rotate(1deg) scale(1.03);box-shadow:0 8px 24px rgba(0,0,0,0.5);border-radius:8px;`;
+        _tdClone.textContent = card.querySelector('.card-title')?.textContent || 'Task';
+        _tdClone.style.cssText = `position:fixed;z-index:3000;pointer-events:none;opacity:0.9;left:${r.left}px;top:${r.top}px;width:${cloneW}px;padding:10px;background:var(--bg-card,#1e293b);color:var(--text-primary,#e2e8f0);font-size:12px;font-weight:600;transform:rotate(1deg) scale(1.03);box-shadow:0 8px 24px rgba(0,0,0,0.5);border-radius:8px;border:2px solid var(--accent-blue,#3b82f6);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
         document.body.appendChild(_tdClone);
         card.style.opacity = '0.2';
       }, 350);
@@ -442,11 +460,12 @@ let _isDragging = false;
         const t = e.touches[0];
         if (Math.abs(t.clientX - _tdStartX) > 10 || Math.abs(t.clientY - _tdStartY) > 10) {
           clearTimeout(_tdTimer); _tdTimer = null; _tdCard = null; _tdId = null;
-          return;
+          return; // Normal scroll
         }
       }
       if (!_tdActive || !_tdClone) return;
       e.preventDefault();
+      e.stopPropagation();
       const t = e.touches[0];
       _tdClone.style.left = (t.clientX - _tdClone.offsetWidth / 2) + 'px';
       _tdClone.style.top = (t.clientY - 20) + 'px';
@@ -456,12 +475,11 @@ let _isDragging = false;
       document.querySelectorAll('.kanban-column').forEach(c => c.style.outline = '');
       const col = el ? el.closest('.kanban-column') : null;
       if (col) col.style.outline = '2px solid var(--accent-blue)';
-      if (t.clientY < 60) window.scrollBy(0, -5);
-      if (t.clientY > window.innerHeight - 60) window.scrollBy(0, 5);
     }, { passive: false });
 
     document.addEventListener('touchend', (e) => {
       if (_tdTimer) { clearTimeout(_tdTimer); _tdTimer = null; }
+      unlockScroll(); // Always unlock
       if (_tdActive && _tdId) {
         const t = e.changedTouches[0];
         if (_tdClone) { _tdClone.style.visibility = 'hidden'; }
@@ -474,6 +492,17 @@ let _isDragging = false;
         setTimeout(() => { _isDragging = false; }, 200);
       }
       _tdCard = null; _tdId = null; _tdActive = false;
+      _isDragging = false; // Always reset
+    });
+
+    // Safety: reset _isDragging on any touchcancel
+    document.addEventListener('touchcancel', () => {
+      unlockScroll();
+      if (_tdClone) { _tdClone.remove(); _tdClone = null; }
+      if (_tdCard) { _tdCard.style.opacity = '1'; }
+      document.querySelectorAll('.kanban-column').forEach(c => c.style.outline = '');
+      _tdCard = null; _tdId = null; _tdActive = false; _isDragging = false;
+      if (_tdTimer) { clearTimeout(_tdTimer); _tdTimer = null; }
     });
 
     console.log('Jun.AI: Android touch drag initialized');
@@ -2478,6 +2507,23 @@ function handleChatWS(msg) {
 // Update chat when project changes
 function updateChatProject() {
   if (_chatOpen) loadChatHistory();
+}
+
+// --- Mobile View Switching ---
+function switchMobileView(view) {
+  document.body.classList.remove('mob-view-kanban', 'mob-view-terminal', 'mob-view-agents', 'mob-view-docs');
+  document.body.classList.add('mob-view-' + view);
+  document.querySelectorAll('.mob-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === view);
+  });
+  if (view === 'terminal' && typeof fitAddon !== 'undefined' && fitAddon) {
+    setTimeout(() => fitAddon.fit(), 100);
+  }
+}
+
+// Auto-detect mobile
+if (window.innerWidth <= 768) {
+  switchMobileView('kanban');
 }
 
 // --- Init ---
