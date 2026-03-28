@@ -1359,9 +1359,9 @@ app.post('/api/chat/:projectId', (req, res) => {
   if ((from || 'user') === 'user') {
     const projectId = req.params.projectId;
 
-    // Skip forwarding images/files to Claude session — only text messages
-    if (type === 'image' || type === 'file') {
-      // Images/files are stored in chat only, not forwarded to Claude
+    // Images/files: don't forward the file, but forward caption text if present
+    if ((type === 'image' || type === 'file') && !message) {
+      // No text with image/file — skip
     } else {
       const project = state.getProjects().find(p => p.id === projectId);
       if (project) {

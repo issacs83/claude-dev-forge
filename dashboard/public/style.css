@@ -917,8 +917,10 @@ body {
   .task-modal { min-width: unset !important; width: 95vw !important; max-width: 95vw !important; max-height: 85vh !important; }
   .modal { min-width: unset !important; width: 92vw !important; }
 
-  /* Chat widget — above tab bar */
+  /* Chat widget — above tab bar, hide when modal open */
   #chatWidget { bottom: 65px !important; right: 8px !important; }
+  .task-modal-overlay ~ #chatWidget,
+  body:has(.task-modal-overlay) #chatWidget { display: none !important; }
   #chatPanel {
     position: fixed !important;
     bottom: 60px !important;
