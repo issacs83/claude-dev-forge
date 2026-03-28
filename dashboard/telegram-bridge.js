@@ -13,7 +13,7 @@ const BRIDGE_DATA = path.join(__dirname, 'data', 'telegram-users.json');
 
 // --- Bot Setup ---
 const bot = new TelegramBot(TOKEN, { polling: true });
-console.log('\n  JunAgent Bot (@JunAgent_bot)');
+console.log('\n  Jun Dashboard Bot (@JunDash_bot)');
 console.log('  ● Telegram bridge started\n');
 
 // --- User/Project Mapping ---
