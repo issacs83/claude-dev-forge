@@ -20,3 +20,5 @@ node_modules/
 *.tmp
 *.bak
 data/
+.env
+dashboard/public/uploads/
