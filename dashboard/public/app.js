@@ -44,6 +44,7 @@ function render() {
   renderKanban();
   renderSessions();
   renderAgents();
+  renderTimeline();
   renderDocuments();
 }
 
@@ -387,13 +388,23 @@ let _isDragging = false;
     if (newStatus) moveTask(taskId, newStatus);
   });
 
-  // Click — open task detail modal
+  // Click — open task detail or bulk select
   board.addEventListener('click', (e) => {
     if (_isDragging) return;
     const card = e.target.closest('.task-card');
     if (!card) return;
     const taskId = card.dataset.id;
-    if (taskId) openTaskDetail(taskId);
+    if (!taskId) return;
+
+    // Ctrl+click or bulk mode → toggle selection
+    if (e.ctrlKey || e.metaKey || _bulkMode) {
+      if (!_bulkMode) toggleBulkMode();
+      toggleBulkSelect(taskId);
+      card.style.outline = _bulkSelected.has(taskId) ? '2px solid var(--accent-blue)' : 'none';
+      return;
+    }
+
+    openTaskDetail(taskId);
   });
 
   console.log('Jun.AI: Drag-and-drop + click initialized');
@@ -1596,6 +1607,159 @@ function dismissNotification(id) {
     el.style.animation = 'fadeOut 0.3s ease-out';
     setTimeout(() => el.remove(), 300);
   }
+}
+
+// --- Bulk Status Change ---
+let _bulkSelected = new Set();
+let _bulkMode = false;
+
+function toggleBulkMode() {
+  _bulkMode = !_bulkMode;
+  _bulkSelected.clear();
+  document.getElementById('bulkBar').style.display = _bulkMode ? 'flex' : 'none';
+  renderKanban();
+}
+
+function toggleBulkSelect(taskId) {
+  if (_bulkSelected.has(taskId)) {
+    _bulkSelected.delete(taskId);
+  } else {
+    _bulkSelected.add(taskId);
+  }
+  document.getElementById('bulkCount').textContent = _bulkSelected.size + '개 선택';
+
+  // Update checkbox visual
+  const cb = document.getElementById('bulk-cb-' + taskId);
+  if (cb) cb.checked = _bulkSelected.has(taskId);
+}
+
+async function bulkMove(newStatus) {
+  if (_bulkSelected.size === 0) return;
+  if (!confirm(`${_bulkSelected.size}개 태스크를 "${newStatus}"로 이동하시겠습니까?`)) return;
+
+  for (const taskId of _bulkSelected) {
+    await fetch('/api/tasks/' + taskId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    });
+  }
+
+  showInfoNotification('일괄 이동', `${_bulkSelected.size}개 태스크 → ${newStatus}`);
+  _bulkSelected.clear();
+  _bulkMode = false;
+  document.getElementById('bulkBar').style.display = 'none';
+  fetchAndRender();
+}
+
+function bulkCancel() {
+  _bulkSelected.clear();
+  _bulkMode = false;
+  document.getElementById('bulkBar').style.display = 'none';
+  renderKanban();
+}
+
+// --- Agent Timeline Chart ---
+function renderTimeline() {
+  const container = document.getElementById('timelineChart');
+  if (!container) return;
+
+  const agents = state.agents || {};
+  const entries = Object.values(agents);
+
+  if (!entries.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">에이전트 활동 이력 없음</div>';
+    return;
+  }
+
+  // Find time range
+  const now = Date.now();
+  let minTime = now;
+  entries.forEach(a => {
+    if (a.startedAt) {
+      const t = new Date(a.startedAt).getTime();
+      if (t < minTime) minTime = t;
+    }
+  });
+
+  // Also check timeline events for historical data
+  const timeline = state.timeline || [];
+  timeline.forEach(e => {
+    if (e.timestamp) {
+      const t = new Date(e.timestamp).getTime();
+      if (t < minTime) minTime = t;
+    }
+  });
+
+  const totalRange = now - minTime;
+  if (totalRange <= 0) {
+    container.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">타임라인 데이터 없음</div>';
+    return;
+  }
+
+  // Build agent timeline bars
+  // Group timeline events by agent
+  const agentTimelines = {};
+  timeline.forEach(e => {
+    if (!e.agent) return;
+    if (!agentTimelines[e.agent]) agentTimelines[e.agent] = [];
+    agentTimelines[e.agent].push(e);
+  });
+
+  // Merge with current agent state
+  entries.forEach(a => {
+    if (!agentTimelines[a.name]) agentTimelines[a.name] = [];
+  });
+
+  let html = '';
+  const sortedAgents = Object.keys(agentTimelines).sort();
+
+  sortedAgents.forEach(name => {
+    const events = agentTimelines[name];
+    const agent = agents[name] || {};
+    const startEvent = events.find(e => e.type === 'agent_start');
+    const completeEvent = events.find(e => e.type === 'agent_complete');
+
+    let barStart = 0, barWidth = 0, barClass = 'waiting', barLabel = '';
+
+    if (agent.startedAt) {
+      const start = new Date(agent.startedAt).getTime();
+      const end = agent.completedAt ? new Date(agent.completedAt).getTime() : now;
+      barStart = ((start - minTime) / totalRange) * 100;
+      barWidth = ((end - start) / totalRange) * 100;
+      barWidth = Math.max(barWidth, 1); // min 1%
+      barClass = agent.status === 'completed' ? 'completed' : agent.status === 'running' ? 'running' : 'waiting';
+      const duration = formatDuration(end - start);
+      barLabel = `${agent.task || ''} (${duration})`;
+    } else if (startEvent && startEvent.timestamp) {
+      const start = new Date(startEvent.timestamp).getTime();
+      const end = completeEvent ? new Date(completeEvent.timestamp).getTime() : now;
+      barStart = ((start - minTime) / totalRange) * 100;
+      barWidth = ((end - start) / totalRange) * 100;
+      barWidth = Math.max(barWidth, 1);
+      barClass = completeEvent ? 'completed' : 'running';
+      barLabel = startEvent.task || '';
+    }
+
+    if (barWidth > 0) {
+      html += `<div class="timeline-row">
+        <span class="timeline-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+        <div class="timeline-bar-container">
+          <div class="timeline-bar ${barClass}" style="left:${barStart}%;width:${barWidth}%" title="${escapeHtml(barLabel)}">${barWidth > 10 ? escapeHtml(barLabel) : ''}</div>
+        </div>
+      </div>`;
+    }
+  });
+
+  // Time axis
+  const startLabel = new Date(minTime).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'});
+  const endLabel = new Date(now).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'});
+  const midTime = minTime + totalRange / 2;
+  const midLabel = new Date(midTime).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'});
+
+  html += `<div class="timeline-time-axis"><span>${startLabel}</span><span>${midLabel}</span><span>${endLabel}</span></div>`;
+
+  container.innerHTML = html || '<div style="color:var(--text-muted);text-align:center;padding:16px">타임라인 없음</div>';
 }
 
 // --- Output Directory State (persisted in localStorage) ---

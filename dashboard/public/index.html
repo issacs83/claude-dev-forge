@@ -53,6 +53,16 @@
     <div class="phase-percent" id="phasePercent">0%</div>
   </div>
 
+  <!-- Bulk actions bar -->
+  <div id="bulkBar" style="display:none;padding:8px 24px;background:rgba(59,130,246,0.1);border-bottom:1px solid var(--accent-blue);display:none;align-items:center;gap:12px">
+    <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--accent-blue)">0개 선택</span>
+    <button onclick="bulkMove('todo')" style="padding:4px 10px;background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;font-size:11px;cursor:pointer">→ To Do</button>
+    <button onclick="bulkMove('hold')" style="padding:4px 10px;background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;font-size:11px;cursor:pointer">→ Hold</button>
+    <button onclick="bulkMove('in_progress')" style="padding:4px 10px;background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;font-size:11px;cursor:pointer">→ Progress</button>
+    <button onclick="bulkMove('done')" style="padding:4px 10px;background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:4px;font-size:11px;cursor:pointer">→ Done</button>
+    <button onclick="bulkCancel()" style="padding:4px 10px;background:rgba(239,68,68,0.15);color:var(--accent-red);border:none;border-radius:4px;font-size:11px;cursor:pointer;margin-left:auto">취소</button>
+  </div>
+
   <!-- Kanban Board (6 columns) — drag/drop handled by JS -->
   <div class="kanban-board" id="kanbanBoard">
     <div class="kanban-column" data-status="todo">
@@ -130,6 +140,15 @@
       <span class="toggle-icon">▼</span>
     </div>
     <div class="panel-body" id="agentList"></div>
+  </div>
+
+  <!-- Agent Timeline Chart -->
+  <div class="agent-panel" id="timelinePanel">
+    <div class="panel-header" onclick="togglePanel('timelinePanel')">
+      <span>Agent Timeline</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="panel-body" id="timelineChart" style="overflow-x:auto"></div>
   </div>
 
   <!-- Output Panel (산출물) -->

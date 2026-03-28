@@ -680,6 +680,56 @@ body {
 .setup-banner .text { color: var(--accent-green); }
 .setup-banner .dismiss { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; }
 
+/* Agent Timeline Chart */
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(51,65,85,0.2);
+}
+.timeline-name {
+  min-width: 140px;
+  max-width: 140px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline-bar-container {
+  flex: 1;
+  height: 20px;
+  position: relative;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.timeline-bar {
+  position: absolute;
+  height: 100%;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 10px;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: default;
+}
+.timeline-bar.running { background: var(--accent-orange); }
+.timeline-bar.completed { background: var(--accent-green); }
+.timeline-bar.waiting { background: var(--border); }
+.timeline-time-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 4px 148px 0 148px;
+  border-top: 1px solid var(--border);
+}
+
 /* Phase filter active indicator */
 .phase-block[style*="outline"] {
   z-index: 1;
