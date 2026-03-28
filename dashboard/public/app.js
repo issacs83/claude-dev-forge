@@ -1733,7 +1733,20 @@ function renderChatMessages(messages, tabsHtml) {
       content = `<a href="${m.fileUrl}" target="_blank" style="color:var(--accent-blue);font-size:12px">📎 ${escapeHtml(m.fileName || 'file')}</a>`;
       if (m.message) content = `<div style="font-size:13px;margin-bottom:4px">${escapeHtml(m.message)}</div>` + content;
     } else {
-      content = `<div style="font-size:13px;white-space:pre-wrap">${escapeHtml(m.message)}</div>`;
+      const msgText = m.message || '';
+      if (msgText.length > 500) {
+        const msgId = 'msg-' + m.id;
+        content = `<div style="font-size:13px;white-space:pre-wrap;word-break:break-word">
+          <div id="${msgId}-short">${escapeHtml(msgText.substring(0, 300))}...
+            <button onclick="document.getElementById('${msgId}-short').style.display='none';document.getElementById('${msgId}-full').style.display='block'" style="background:none;border:none;color:var(--accent-blue);cursor:pointer;font-size:11px;padding:0;margin-left:4px">더보기 (${msgText.length.toLocaleString()}자)</button>
+          </div>
+          <div id="${msgId}-full" style="display:none">${escapeHtml(msgText)}
+            <button onclick="document.getElementById('${msgId}-full').style.display='none';document.getElementById('${msgId}-short').style.display='block'" style="background:none;border:none;color:var(--accent-blue);cursor:pointer;font-size:11px;padding:0;margin-left:4px">접기</button>
+          </div>
+        </div>`;
+      } else {
+        content = `<div style="font-size:13px;white-space:pre-wrap;word-break:break-word">${escapeHtml(msgText)}</div>`;
+      }
     }
 
     return `<div style="display:flex;justify-content:${align};margin-bottom:8px">
@@ -1809,10 +1822,26 @@ async function sendChatMessage() {
   }
 }
 
-// Paste image from clipboard
+// Chat input keydown: Enter=send, Shift+Enter=newline
+function handleChatKeydown(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendChatMessage();
+  }
+}
+
+// Auto-resize textarea
+function autoResizeChatInput(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// Paste: image or large text
 function handleChatPaste(event) {
   const items = event.clipboardData?.items;
   if (!items) return;
+
+  // Check for image
   for (const item of items) {
     if (item.type.startsWith('image/')) {
       event.preventDefault();
@@ -1829,8 +1858,28 @@ function handleChatPaste(event) {
         </div>`;
       };
       reader.readAsDataURL(file);
-      break;
+      return;
     }
+  }
+
+  // Check for large text paste
+  const text = event.clipboardData?.getData('text/plain');
+  if (text && text.length > 200) {
+    event.preventDefault();
+    const input = document.getElementById('chatInput');
+    const lines = text.split('\n').length;
+    const chars = text.length;
+    const preview = document.getElementById('chatPreview');
+    preview.style.display = 'block';
+    preview.innerHTML = `<div style="padding:8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:11px;color:var(--accent-blue);font-weight:600">📋 붙여넣기 (${chars.toLocaleString()}자, ${lines}줄)</span>
+        <button onclick="this.parentElement.parentElement.parentElement.style.display='none';document.getElementById('chatInput').value=''" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px">✕</button>
+      </div>
+      <div style="max-height:80px;overflow-y:auto;font-size:11px;color:var(--text-secondary);white-space:pre-wrap;line-height:1.4;background:var(--bg-primary);padding:6px;border-radius:4px">${escapeHtml(text.substring(0, 500))}${text.length > 500 ? '\n...(더보기)' : ''}</div>
+    </div>`;
+    input.value = text;
+    autoResizeChatInput(input);
   }
 }
 

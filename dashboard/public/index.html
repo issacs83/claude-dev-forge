@@ -285,9 +285,10 @@
           <label style="cursor:pointer;font-size:18px;color:var(--text-muted)" title="파일 첨부">
             📎<input type="file" id="chatFileInput" style="display:none" onchange="handleChatFile(this)" />
           </label>
-          <input id="chatInput" placeholder="메시지 입력..." style="flex:1;padding:8px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-size:13px"
-                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage()}"
-                 onpaste="handleChatPaste(event)" />
+          <textarea id="chatInput" placeholder="메시지 입력... (Shift+Enter: 줄바꿈)" rows="1" style="flex:1;padding:8px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-size:13px;resize:none;max-height:120px;line-height:1.4;font-family:inherit;overflow-y:auto"
+                 onkeydown="handleChatKeydown(event)"
+                 onpaste="handleChatPaste(event)"
+                 oninput="autoResizeChatInput(this)"></textarea>
           <button onclick="sendChatMessage()" style="padding:8px 12px;background:var(--accent-blue);color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">▶</button>
         </div>
       </div>
