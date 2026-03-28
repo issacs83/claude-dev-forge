@@ -563,6 +563,83 @@ app.get('/api/phases/:id', (req, res) => {
   res.json(detail);
 });
 
+// --- Auto Response Generator ---
+function generateAutoResponse(message, projectId) {
+  const msg = (message || '').toLowerCase();
+  const project = state.getProjects().find(p => p.id === projectId);
+  const projectName = project ? project.name : '';
+  const tasks = state.tasks.filter(t => t.project === projectId);
+  const agents = state.agents || {};
+  const docs = state.getDocuments().filter(d => d.project === projectId);
+
+  const totalTasks = tasks.length;
+  const doneTasks = tasks.filter(t => t.status === 'done').length;
+  const activeTasks = tasks.filter(t => t.status === 'in_progress');
+  const rate = totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0;
+  const runningAgents = Object.values(agents).filter(a => a.status === 'running');
+
+  // Status queries
+  if (msg.includes('상태') || msg.includes('status') || msg.includes('현황') || msg.includes('보고')) {
+    let res = `📊 ${projectName} 현황:\n\n`;
+    res += `태스크: ${doneTasks}/${totalTasks} 완료 (${rate}%)\n`;
+    if (activeTasks.length > 0) {
+      res += `\n진행 중:\n`;
+      activeTasks.forEach(t => { res += `  🔄 ${t.title} (${t.agent || '미배정'})\n`; });
+    }
+    if (runningAgents.length > 0) {
+      res += `\n활동 에이전트:\n`;
+      runningAgents.forEach(a => { res += `  🔄 ${a.name}: ${a.progress||0}% ${a.task||''}\n`; });
+    }
+    if (docs.length > 0) {
+      res += `\n산출물: ${docs.length}개\n`;
+    }
+    return res;
+  }
+
+  // Greeting
+  if (msg.includes('안녕') || msg.includes('hello') || msg.includes('hi')) {
+    return `안녕하세요! ${projectName} 프로젝트 팀장입니다.\n\n현재 진행률: ${rate}% (${doneTasks}/${totalTasks})\n활동 에이전트: ${runningAgents.length}개\n\n무엇을 도와드릴까요?`;
+  }
+
+  // Agent queries
+  if (msg.includes('에이전트') || msg.includes('agent') || msg.includes('누가')) {
+    const allAgents = Object.values(agents);
+    if (allAgents.length === 0) return '현재 활동 중인 에이전트가 없습니다.';
+    let res = '🤖 에이전트 현황:\n\n';
+    allAgents.forEach(a => {
+      const icon = a.status === 'running' ? '🔄' : a.status === 'completed' ? '✅' : '⏳';
+      res += `${icon} ${a.name}: ${a.status} ${a.progress||0}%\n`;
+    });
+    return res;
+  }
+
+  // Task queries
+  if (msg.includes('할일') || msg.includes('todo') || msg.includes('남은') || msg.includes('뭐 해')) {
+    const todoTasks = tasks.filter(t => t.status === 'todo');
+    if (todoTasks.length === 0) return '모든 태스크가 완료되었습니다! 🎉';
+    let res = `📋 남은 작업 (${todoTasks.length}개):\n\n`;
+    todoTasks.slice(0, 10).forEach(t => { res += `  ⬜ ${t.title}\n`; });
+    if (todoTasks.length > 10) res += `  ... +${todoTasks.length - 10}개 더\n`;
+    return res;
+  }
+
+  // Output queries
+  if (msg.includes('산출물') || msg.includes('output') || msg.includes('문서') || msg.includes('파일')) {
+    if (docs.length === 0) return '아직 생성된 산출물이 없습니다.';
+    let res = `📁 산출물 (${docs.length}개):\n\n`;
+    docs.slice(-10).forEach(d => { res += `  📄 ${d.file}\n`; });
+    return res;
+  }
+
+  // Help
+  if (msg.includes('도움') || msg.includes('help') || msg.includes('뭐 할 수')) {
+    return `사용 가능한 질문:\n\n• "상태" / "현황" — 프로젝트 진행 상황\n• "에이전트" — 활동 에이전트 현황\n• "할일" / "남은 작업" — 미완료 태스크\n• "산출물" — 생성된 파일 목록\n• 기타 요청 — Claude 세션에 전달됨`;
+  }
+
+  // Default: no auto-response (will be forwarded to Claude session)
+  return null;
+}
+
 // --- Session Management (tmux + claude) ---
 const { execSync, exec } = require('child_process');
 
@@ -831,9 +908,35 @@ app.post('/api/chat/:projectId', (req, res) => {
   // Broadcast to dashboard
   broadcast({ type: 'chat_message', data: { projectId: req.params.projectId, message: msg } });
 
-  // Forward to Claude tmux session (if from user)
+  // Auto-respond + forward to Claude session
   if ((from || 'user') === 'user') {
-    const project = state.getProjects().find(p => p.id === req.params.projectId);
+    const projectId = req.params.projectId;
+
+    // 1. Auto-respond to common queries
+    const autoResponse = generateAutoResponse(message || '', projectId);
+    if (autoResponse) {
+      setTimeout(() => {
+        const chatFile = path.join(CHAT_DIR, `project-${projectId}.json`);
+        let msgs = [];
+        try { if (fs.existsSync(chatFile)) msgs = JSON.parse(fs.readFileSync(chatFile, 'utf-8')); } catch(e) {}
+        const autoMsg = {
+          id: String(Date.now()),
+          from: 'project-director',
+          message: autoResponse,
+          type: 'text',
+          fileName: null,
+          fileUrl: null,
+          timestamp: new Date().toISOString()
+        };
+        msgs.push(autoMsg);
+        if (msgs.length > 500) msgs = msgs.slice(-500);
+        fs.writeFileSync(chatFile, JSON.stringify(msgs, null, 2), 'utf-8');
+        broadcast({ type: 'chat_message', data: { projectId, message: autoMsg } });
+      }, 1500);
+    }
+
+    // 2. Forward to Claude tmux session
+    const project = state.getProjects().find(p => p.id === projectId);
     if (project) {
       try {
         const sessions = execSync('tmux list-windows -t work -F "#{window_name}|#{pane_current_command}" 2>/dev/null', { encoding: 'utf-8' });
