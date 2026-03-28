@@ -325,24 +325,48 @@ Phase 11 평가 결과:
 ### 7.1 자동 문서 생성
 각 PDLC 단계 완료 시 적절한 포맷의 문서가 자동 생성됩니다.
 
-### 7.2 출력 디렉토리
+### 7.2 프로젝트 디렉토리 구조
+프로젝트 생성 시 `/home/issacs/sessions/jun-{name}/` 아래에 자동 생성:
 ```
-output/
-├── phase-0-research/          # 선행기술 조사서
-├── phase-1-voc/               # VOC 분석 보고서
-├── phase-2-market/            # 시장분석, 경쟁비교
-├── phase-3-planning/          # PRD, UX 사양서, GTM
-├── phase-4-requirements/      # SRS, HRS, ICD
-├── phase-5-architecture/      # 아키텍처, WBS
-├── phase-6-design/            # 설계 문서, BOM
-├── phase-7-detailed-design/   # 상세 설계서
-├── phase-8-implementation/    # 코드 리뷰 기록
-├── phase-9-testing/           # 테스트 보고서
-├── phase-10-verification/     # DHF, V&V, 매뉴얼
-├── phase-11-evaluation/       # 평가 보고서
-├── screenshots/               # E2E 테스트 스크린샷
-└── retroactive/               # 역방향 문서 패키지
+/home/issacs/sessions/jun-{프로젝트명}/
+├── .claude/
+│   └── CLAUDE.md              # 대시보드 API 연동 프로토콜
+├── .git/                      # git 자동 초기화
+├── output/                    # 산출물 (Phase별)
+│   ├── phase-00-research/     # 선행기술 조사서, 특허맵
+│   ├── phase-01-voc/          # VOC 보고서, 페르소나
+│   ├── phase-02-market/       # 시장분석서, 경쟁비교표
+│   ├── phase-03-planning/     # PRD, UX 사양서, GTM
+│   ├── phase-04-requirements/ # SRS, HRS, ICD
+│   ├── phase-05-architecture/ # 아키텍처, WBS
+│   ├── phase-06-design/       # 설계 문서, BOM
+│   ├── phase-07-detailed-design/ # 상세 설계서
+│   ├── phase-08-implementation/  # 코드 리뷰 기록
+│   ├── phase-09-testing/      # 테스트 보고서
+│   │   └── screenshots/       # E2E 스크린샷
+│   ├── phase-10-verification/ # DHF, V&V, 매뉴얼
+│   ├── phase-11-evaluation/   # 평가 보고서
+│   ├── certification/         # 인증 문서 (FDA, CE, KC)
+│   └── media/                 # 이미지, 다이어그램
+│       ├── screenshots/
+│       ├── figures/
+│       └── diagrams/
+├── src/                       # 소스 코드
+└── README.md
 ```
+
+### 7.3 산출물 카테고리
+| 카테고리 | 자동 분류 기준 | 예시 |
+|----------|--------------|------|
+| certification | fda, 510k, ce, dhf, kc, 인증 | DHF.docx, KC_신청서.hwpx |
+| design | 설계, srs, sds, 아키텍처 | SRS_요구사양서.docx |
+| test | test, 테스트, v&v, 검증 | E2E_테스트_보고서.docx |
+| analysis | 분석, 보고서, report | 시장분석_보고서.docx |
+| manual | manual, 매뉴얼, guide | 사용자_매뉴얼.docx |
+| presentation | .pptx 파일 | 경영진_보고.pptx |
+| data | .xlsx 파일 | BOM.xlsx, FMEA.xlsx |
+| official | .hwpx 파일 | 공문서.hwpx |
+| media | .png, .jpg, .svg | 스크린샷, 다이어그램 |
 
 ### 7.3 포맷별 라이브러리
 
@@ -375,15 +399,43 @@ npm install && npm start
 - **문서 추적**: 생성된 산출물 목록
 - **필터링**: Role 기반 태스크 필터
 
-### 8.3 API
+### 8.3 회사에서 원격 접속
 ```
-GET  /api/status      — 전체 상태
-GET  /api/agents      — 에이전트 상태
-GET  /api/tasks       — 태스크 목록
-POST /api/tasks       — 태스크 생성
-PATCH /api/tasks/:id  — 태스크 업데이트
-POST /api/events      — 이벤트 발행
-WebSocket ws://        — 실시간 푸시
+회사 PC (브라우저) → http://58.29.21.11:7700
+  ├── 프로젝트 생성 → 서버에 디렉토리 + tmux 세션 자동 생성
+  ├── 카드 드래그 → Claude 세션에 태스크 자동 전달
+  ├── 채팅 메시지 → tmux send-keys → Claude 실행 → API 응답
+  ├── Terminal Output → 실시간 터미널 출력 확인
+  └── 데이터 영속화 → 서버 재시작해도 유지
+```
+
+### 8.4 API
+```
+Projects:
+  POST /api/projects/setup   — 프로젝트 + PDLC 태스크 자동 생성
+  DELETE /api/projects/:id   — 프로젝트 삭제 (이름 확인 필수)
+
+Tasks:
+  GET/POST /api/tasks        — 태스크 CRUD
+  GET /api/tasks/:id         — 상세 (히스토리+코멘트+산출물)
+  POST /api/tasks/:id/comments — 에이전트 소통 (양방향)
+
+Sessions:
+  GET  /api/sessions         — tmux 세션 목록
+  POST /api/sessions/start   — 세션 생성 (디렉토리+tmux+claude)
+  POST /api/sessions/send    — 세션에 메시지 전달
+  GET  /api/sessions/:name/output — 터미널 출력
+  GET  /api/sessions/:name/files  — 산출물 파일 목록
+
+Events:
+  POST /api/events           — 에이전트 이벤트 (start/progress/complete)
+
+Data:
+  POST /api/save             — 수동 저장
+  GET  /api/export           — 전체 상태 다운로드
+
+WebSocket ws://58.29.21.11:7700 — 실시간 푸시
+API Docs: http://58.29.21.11:7701
 ```
 
 ---

@@ -205,8 +205,31 @@ curl -X POST http://58.29.21.11:7700/api/notify \\
       routes: [
         {
           method: 'GET', path: '/api/documents',
-          desc: '생성된 문서 산출물 목록',
-          response: '[{ file, format, phase, createdAt }]'
+          desc: '산출물 목록 (카테고리/Phase 필터 가능)',
+          response: '[{ file, format, phase, category, taskId, createdAt }]',
+          example: `# 전체 산출물
+curl http://58.29.21.11:7700/api/documents
+
+# Phase별 필터
+curl "http://58.29.21.11:7700/api/documents?phase=9"
+
+# 카테고리별 필터 (certification, design, test, analysis, manual, presentation, data, official, media)
+curl "http://58.29.21.11:7700/api/documents?category=certification"`
+        }
+      ]
+    },
+    {
+      group: 'Data Persistence',
+      routes: [
+        {
+          method: 'POST', path: '/api/save',
+          desc: '상태를 data/state.json에 수동 저장 (자동 저장: 30초마다)',
+          response: '{ ok: true, savedAt: string, file: string }'
+        },
+        {
+          method: 'GET', path: '/api/export',
+          desc: '전체 상태를 JSON 파일로 다운로드',
+          response: '{ stats, tasks, projects, agents, phases, documents, ... }'
         }
       ]
     },
@@ -220,17 +243,36 @@ curl -X POST http://58.29.21.11:7700/api/notify \\
         },
         {
           method: 'POST', path: '/api/sessions/start',
-          desc: '새 Claude Code 세션을 tmux 창으로 생성 — 프로젝트 디렉토리로 이동 후 claude 실행',
+          desc: '새 Claude Code 세션 생성 — /home/issacs/sessions/jun-{name}/ 디렉토리 자동 생성 + tmux 창 + claude 실행',
           body: `{
-  projectName: string,       // 프로젝트 이름 (tmux 창 이름: jun-{name})
-  projectPath?: string,      // 프로젝트 디렉토리 (기본: /home/issacs/work)
-  projectId?: string         // 대시보드 프로젝트 ID (초기 컨텍스트 전달용)
+  projectName: string,       // 프로젝트 이름 (필수)
+  projectPath?: string,      // 커스텀 경로 (기본: /home/issacs/sessions/jun-{name})
+  projectId?: string,        // 대시보드 프로젝트 ID
+  domain?: string            // web-fullstack | yocto-bsp | firmware | ai-ml | hardware | general
 }`,
-          response: '{ ok: true, action: "created"|"focused", window: string, message: string }',
-          example: `# 프로젝트 세션 생성
+          response: `{
+  ok: true,
+  action: "created" | "focused",
+  window: "jun-프로젝트명",
+  projectDir: "/home/issacs/sessions/jun-프로젝트명",
+  structure: { root, output, src, claude },
+  message: string
+}`,
+          example: `# 프로젝트 세션 생성 (디렉토리 + tmux + Claude 자동 시작)
 curl -X POST http://58.29.21.11:7700/api/sessions/start \\
   -H 'Content-Type: application/json' \\
-  -d '{"projectName":"스마트카메라","projectPath":"/home/issacs/work/smart-camera","projectId":"1"}'`
+  -d '{"projectName":"스마트카메라v2","projectId":"1","domain":"ai-ml"}'
+
+# 자동 생성되는 구조:
+# /home/issacs/sessions/jun-스마트카메라v2/
+# ├── .claude/CLAUDE.md    (대시보드 API 프로토콜)
+# ├── .git/                (자동 초기화)
+# ├── output/
+# │   ├── phase-00-research/ ~ phase-11-evaluation/
+# │   ├── certification/   (FDA, CE, KC)
+# │   └── media/           (screenshots, figures, diagrams)
+# ├── src/
+# └── README.md`
         },
         {
           method: 'POST', path: '/api/sessions/stop',
@@ -246,7 +288,19 @@ curl -X POST http://58.29.21.11:7700/api/sessions/start \\
           example: `# Claude 세션에 태스크 전달
 curl -X POST http://58.29.21.11:7700/api/sessions/send \\
   -H 'Content-Type: application/json' \\
-  -d '{"windowName":"jun-스마트카메라","message":"Phase 0 선행연구를 시작해주세요. paper-patent-researcher 에이전트를 사용하세요."}'`
+  -d '{"windowName":"jun-스마트카메라","message":"Phase 0 선행연구를 시작해주세요."}'`
+        },
+        {
+          method: 'GET', path: '/api/sessions/:name/output',
+          desc: '세션 터미널 출력 조회 (tmux capture-pane, 최근 50줄)',
+          response: '{ window: string, output: string, timestamp: string }'
+        },
+        {
+          method: 'GET', path: '/api/sessions/:name/files',
+          desc: '프로젝트 산출물 파일 목록 조회',
+          response: '{ projectDir: string, files: [{ path, fullPath, format }], count: number }',
+          example: `# 산출물 목록 조회
+curl http://58.29.21.11:7700/api/sessions/jun-스마트카메라v2/files`
         }
       ]
     },
@@ -271,7 +325,8 @@ curl -X POST http://58.29.21.11:7700/api/sessions/send \\
       { type: 'confirm_response', desc: '사용자 응답 브로드캐스트', data: '{ id, approved }' },
       { type: 'task_created', desc: '태스크 생성됨', data: '{ ...task }' },
       { type: 'task_updated', desc: '태스크 업데이트됨', data: '{ ...task }' },
-      { type: 'project_created', desc: '프로젝트 생성됨', data: '{ ...project }' }
+      { type: 'project_created', desc: '프로젝트 생성됨', data: '{ ...project }' },
+      { type: 'task_comment', desc: '태스크 코멘트 추가됨 (사용자↔에이전트 채팅)', data: '{ taskId, comment: { id, from, message, timestamp } }' }
     ]
   },
   usage: {
