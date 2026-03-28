@@ -1,5 +1,5 @@
 /**
- * StateManager — tracks agents, tasks, phases, documents, and timeline
+ * StateManager — tracks projects, agents, tasks, phases, documents, comments, and timeline
  */
 class StateManager {
   constructor() {
@@ -12,6 +12,9 @@ class StateManager {
     this.timeline = [];
     this.debugLoops = [];
     this.taskIdCounter = 0;
+    this.commentIdCounter = 0;
+    this.comments = {}; // taskId → [comments]
+    this.taskHistory = {}; // taskId → [history entries]
   }
 
   _initPhases() {
@@ -24,9 +27,10 @@ class StateManager {
     return phaseNames.map((name, i) => ({
       id: i,
       name,
-      status: 'pending', // pending | in_progress | completed
+      status: 'pending',
       startedAt: null,
-      completedAt: null
+      completedAt: null,
+      gateConditions: []
     }));
   }
 
@@ -92,6 +96,7 @@ class StateManager {
           file: event.file,
           format: event.format,
           phase: event.phase,
+          taskId: event.taskId || null,
           createdAt: event.timestamp
         });
         break;
@@ -114,6 +119,7 @@ class StateManager {
       id: String(++this.projectIdCounter),
       name: data.name || '',
       description: data.description || '',
+      domain: data.domain || 'general',
       status: data.status || 'active',
       createdAt: new Date().toISOString()
     };
@@ -128,6 +134,21 @@ class StateManager {
     return project;
   }
 
+  deleteProject(id) {
+    const idx = this.projects.findIndex(p => p.id === id);
+    if (idx === -1) return null;
+    const project = this.projects[idx];
+    this.projects.splice(idx, 1);
+    // Remove associated tasks, comments, history
+    const taskIds = this.tasks.filter(t => t.project === id).map(t => t.id);
+    this.tasks = this.tasks.filter(t => t.project !== id);
+    taskIds.forEach(tid => {
+      delete this.comments[tid];
+      delete this.taskHistory[tid];
+    });
+    return project;
+  }
+
   getProjects() { return this.projects; }
 
   // --- Task Management ---
@@ -136,6 +157,7 @@ class StateManager {
       id: String(++this.taskIdCounter),
       title: data.title || '',
       description: data.description || '',
+      objective: data.objective || '',
       status: data.status || 'todo',
       priority: data.priority || 'medium',
       role: data.role || 'general',
@@ -147,14 +169,102 @@ class StateManager {
       comments: 0
     };
     this.tasks.push(task);
+    this._addHistory(task.id, 'created', `태스크 생성됨 (${task.status})`);
     return task;
   }
 
   updateTask(id, updates) {
     const task = this.tasks.find(t => t.id === id);
     if (!task) return null;
+    const oldStatus = task.status;
+    const oldAgent = task.agent;
     Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+    // Track status change
+    if (updates.status && updates.status !== oldStatus) {
+      this._addHistory(id, 'status_change', `${oldStatus} → ${updates.status}`);
+    }
+    // Track agent change
+    if (updates.agent && updates.agent !== oldAgent) {
+      this._addHistory(id, 'agent_assigned', `${updates.agent} 배정됨`);
+    }
+    if (updates.objective) {
+      this._addHistory(id, 'objective_updated', `목표 수정됨`);
+    }
     return task;
+  }
+
+  deleteTask(id) {
+    const idx = this.tasks.findIndex(t => t.id === id);
+    if (idx === -1) return null;
+    const task = this.tasks[idx];
+    this.tasks.splice(idx, 1);
+    delete this.comments[id];
+    delete this.taskHistory[id];
+    return task;
+  }
+
+  getTask(id) {
+    return this.tasks.find(t => t.id === id) || null;
+  }
+
+  // --- Task History ---
+  _addHistory(taskId, type, message) {
+    if (!this.taskHistory[taskId]) this.taskHistory[taskId] = [];
+    this.taskHistory[taskId].push({
+      type,
+      message,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  getTaskHistory(taskId) {
+    return this.taskHistory[taskId] || [];
+  }
+
+  // --- Task Comments ---
+  addComment(taskId, from, message) {
+    if (!this.comments[taskId]) this.comments[taskId] = [];
+    const comment = {
+      id: String(++this.commentIdCounter),
+      from,
+      message,
+      timestamp: new Date().toISOString()
+    };
+    this.comments[taskId].push(comment);
+    // Update comment count on task
+    const task = this.tasks.find(t => t.id === taskId);
+    if (task) task.comments = this.comments[taskId].length;
+    this._addHistory(taskId, 'comment', `${from}: ${message.substring(0, 50)}`);
+    return comment;
+  }
+
+  getComments(taskId) {
+    return this.comments[taskId] || [];
+  }
+
+  // --- Task Documents ---
+  getTaskDocuments(taskId) {
+    return this.documents.filter(d => d.taskId === taskId);
+  }
+
+  // --- Phase Detail ---
+  getPhaseDetail(phaseId) {
+    const phase = this.phases[phaseId];
+    if (!phase) return null;
+    const phaseTasks = this.tasks.filter(t => t.phase === phaseId);
+    const phaseAgents = Object.values(this.agents).filter(a => a.phase === phaseId);
+    const phaseDocs = this.documents.filter(d => d.phase === phaseId);
+    const doneTasks = phaseTasks.filter(t => t.status === 'done').length;
+    const totalTasks = phaseTasks.length;
+    return {
+      ...phase,
+      tasks: phaseTasks,
+      agents: phaseAgents,
+      documents: phaseDocs,
+      taskProgress: totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0,
+      tasksDone: doneTasks,
+      tasksTotal: totalTasks
+    };
   }
 
   // --- Getters ---

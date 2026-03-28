@@ -162,6 +162,64 @@ app.post('/api/projects/setup', (req, res) => {
   });
 });
 
+// Delete project (with confirmation — client must send name match)
+app.delete('/api/projects/:id', (req, res) => {
+  const project = state.getProjects().find(p => p.id === req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (req.body.confirmName && req.body.confirmName !== project.name) {
+    return res.status(400).json({ error: 'Project name does not match' });
+  }
+  state.deleteProject(req.params.id);
+  broadcast({ type: 'state_update', data: state.getFullState() });
+  res.json({ ok: true, deleted: project.name });
+});
+
+// Get task detail
+app.get('/api/tasks/:id', (req, res) => {
+  const task = state.getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  res.json({
+    ...task,
+    history: state.getTaskHistory(req.params.id),
+    comments: state.getComments(req.params.id),
+    documents: state.getTaskDocuments(req.params.id)
+  });
+});
+
+// Delete task
+app.delete('/api/tasks/:id', (req, res) => {
+  const task = state.deleteTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  broadcast({ type: 'state_update', data: state.getFullState() });
+  res.json({ ok: true });
+});
+
+// Task comments
+app.get('/api/tasks/:id/comments', (req, res) => {
+  res.json(state.getComments(req.params.id));
+});
+
+app.post('/api/tasks/:id/comments', (req, res) => {
+  const { from, message } = req.body;
+  if (!message) return res.status(400).json({ error: 'Message required' });
+  const comment = state.addComment(req.params.id, from || 'user', message);
+  broadcast({ type: 'task_comment', data: { taskId: req.params.id, comment } });
+  broadcast({ type: 'state_update', data: state.getFullState() });
+  res.json(comment);
+});
+
+// Task history
+app.get('/api/tasks/:id/history', (req, res) => {
+  res.json(state.getTaskHistory(req.params.id));
+});
+
+// Phase detail
+app.get('/api/phases/:id', (req, res) => {
+  const detail = state.getPhaseDetail(parseInt(req.params.id));
+  if (!detail) return res.status(404).json({ error: 'Phase not found' });
+  res.json(detail);
+});
+
 // Confirm response (from dashboard UI)
 app.post('/api/confirm', (req, res) => {
   const { id, approved } = req.body;

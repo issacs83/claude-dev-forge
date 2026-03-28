@@ -28,6 +28,12 @@ const API_DOCS = {
           response: '{ ...updated project }'
         },
         {
+          method: 'DELETE', path: '/api/projects/:id',
+          desc: '프로젝트 삭제 (확인용 이름 필수 — 모든 관련 태스크/히스토리 영구 삭제)',
+          body: '{ confirmName: string }',
+          response: '{ ok: true, deleted: string }'
+        },
+        {
           method: 'POST', path: '/api/projects/setup',
           desc: '프로젝트 셋업 — 프로젝트 생성 + PDLC 12단계 태스크 자동 생성 (VOC 전 단계)',
           body: `{
@@ -65,9 +71,50 @@ curl -X POST http://localhost:7700/api/projects/setup \\
         },
         {
           method: 'PATCH', path: '/api/tasks/:id',
-          desc: '태스크 업데이트 (상태 변경, 에이전트 배정 등)',
-          body: '{ status?, title?, priority?, role?, agent?, project? }',
+          desc: '태스크 업데이트 (상태 변경, 에이전트 배정, 목표 수정 등)',
+          body: '{ status?, title?, priority?, role?, agent?, project?, objective? }',
           response: '{ ...updated task }'
+        },
+        {
+          method: 'GET', path: '/api/tasks/:id',
+          desc: '태스크 상세 조회 (히스토리, 코멘트, 산출물 포함)',
+          response: '{ ...task, history: [...], comments: [...], documents: [...] }'
+        },
+        {
+          method: 'DELETE', path: '/api/tasks/:id',
+          desc: '태스크 삭제',
+          response: '{ ok: true }'
+        },
+        {
+          method: 'GET', path: '/api/tasks/:id/comments',
+          desc: '태스크 코멘트 목록',
+          response: '[{ id, from, message, timestamp }]'
+        },
+        {
+          method: 'POST', path: '/api/tasks/:id/comments',
+          desc: '태스크에 코멘트 추가 (에이전트 소통)',
+          body: '{ from: "user"|"agent-name", message: string }',
+          response: '{ id, from, message, timestamp }'
+        },
+        {
+          method: 'GET', path: '/api/tasks/:id/history',
+          desc: '태스크 상태 변경 히스토리',
+          response: '[{ type, message, timestamp }]'
+        }
+      ]
+    },
+    {
+      group: 'Phases',
+      routes: [
+        {
+          method: 'GET', path: '/api/phases',
+          desc: 'PDLC 12단계 상태 조회',
+          response: '[{ id, name, status, startedAt, completedAt }]'
+        },
+        {
+          method: 'GET', path: '/api/phases/:id',
+          desc: 'Phase 상세 조회 (태스크, 에이전트, 산출물, 진행률 포함)',
+          response: '{ id, name, status, startedAt, completedAt, tasks[], agents[], documents[], taskProgress, tasksDone, tasksTotal }'
         }
       ]
     },

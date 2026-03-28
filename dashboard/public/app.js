@@ -59,6 +59,22 @@ function renderProjects() {
     taskProjectSelect.innerHTML = '<option value="">No Project</option>' +
       projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
   }
+
+  // Show/hide delete button based on selection
+  let delBtn = document.getElementById('deleteProjectBtn');
+  if (!delBtn) {
+    delBtn = document.createElement('button');
+    delBtn.id = 'deleteProjectBtn';
+    delBtn.style.cssText = 'font-size:12px;padding:5px 8px;margin-left:4px;background:rgba(239,68,68,0.15);color:var(--accent-red);border:1px solid rgba(239,68,68,0.3);border-radius:6px;cursor:pointer;display:none';
+    delBtn.textContent = '🗑';
+    filterSelect.parentElement.appendChild(delBtn);
+  }
+  if (activeProjectFilter !== 'all') {
+    delBtn.style.display = 'inline';
+    delBtn.onclick = () => deleteProjectConfirm(activeProjectFilter);
+  } else {
+    delBtn.style.display = 'none';
+  }
 }
 
 function renderStats() {
@@ -78,7 +94,7 @@ function renderPhases() {
   ];
   const phases = state.phases || [];
   track.innerHTML = phases.map((p, i) =>
-    `<div class="phase-block ${p.status}" data-name="${phaseNames[i] || p.name}">
+    `<div class="phase-block ${p.status}" data-name="${phaseNames[i] || p.name}" style="cursor:pointer" onclick="openPhaseDetail(${i})">
       ${i}
     </div>`
   ).join('');
@@ -192,7 +208,7 @@ function renderCard(task) {
 
   return `
     <div class="task-card ${isWorking ? 'working' : ''}" data-id="${task.id}" draggable="true"
-         ondragstart="onDragStart(event)" onclick="onCardClick('${task.id}')">
+         ondragstart="onDragStart(event)" onclick="openTaskDetail('${task.id}')">
       <div class="card-top">
         <span class="card-title">${escapeHtml(task.title)}</span>
         <span class="priority-badge ${priorityClass}">${capitalize(task.priority || 'medium')}</span>
@@ -250,43 +266,344 @@ function moveTask(taskId, newStatus) {
   });
 }
 
-// --- Card Click (status change modal) ---
-function onCardClick(taskId) {
-  const task = (state.tasks || []).find(t => String(t.id) === String(taskId));
-  if (!task) return;
+// --- Card Click (full detail modal) ---
+async function openTaskDetail(taskId) {
+  const res = await fetch('/api/tasks/' + taskId);
+  const data = await res.json();
+  if (!data || !data.id) return;
+
+  const task = data;
+  const history = data.history || [];
+  const comments = data.comments || [];
+  const docs = data.documents || [];
+  const agents = state.agents || {};
+  const assignedAgent = task.agent ? agents[task.agent] : null;
+
+  // Agent status info
+  let agentInfo = '';
+  if (assignedAgent && assignedAgent.status === 'running') {
+    const pct = assignedAgent.progress || 0;
+    const elapsed = getElapsedTime(assignedAgent.startedAt);
+    const remaining = estimateRemaining(assignedAgent.startedAt, pct);
+    agentInfo = `
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+        <div class="spinner"></div>
+        <span style="color:var(--accent-orange);font-weight:600">${task.agent}</span>
+        <span style="color:var(--text-muted)">${assignedAgent.status}</span>
+      </div>
+      <div class="progress-bar-card"><div class="progress-fill-card" style="width:${pct}%"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px">
+        <span>경과: ${elapsed}</span>
+        <span style="color:var(--accent-orange);font-weight:600">${pct}%</span>
+        <span>남은: ${remaining}</span>
+      </div>
+    `;
+  } else if (assignedAgent) {
+    agentInfo = `
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+        <span style="color:var(--accent-green)">${task.agent}</span>
+        <span style="color:var(--text-muted)">${assignedAgent.status || 'assigned'}</span>
+        ${assignedAgent.duration ? '<span style="color:var(--text-muted)">(' + assignedAgent.duration + 'min)</span>' : ''}
+      </div>
+    `;
+  }
+
+  // Build AVAILABLE_AGENTS list for dropdown
+  const agentList = [
+    'project-director','web-developer','architect','planner','code-reviewer',
+    'security-reviewer','tdd-guide','verify-agent','build-error-resolver',
+    'e2e-tester','evaluator','bsp-engineer','firmware-engineer','circuit-engineer',
+    'hardware-engineer','algorithm-researcher','graphics-engineer','sdk-developer',
+    'devops-engineer','maintenance-engineer','product-strategist','regulatory-specialist',
+    'doc-manager','qa-engineer','voc-researcher','ux-designer','marketing-strategist',
+    'report-writer','presentation-writer','hwp-writer','spreadsheet-writer',
+    'paper-patent-researcher','data-engineer','labeling-manager','labeling-reviewer',
+    'ai-trainer','mlops-engineer','cuda-engineer','npu-engineer','inference-optimizer',
+    'reverse-engineer','retroactive-documenter','env-provisioner'
+  ];
+
+  // History HTML
+  const historyHTML = history.length > 0
+    ? history.map(h => {
+        const t = new Date(h.timestamp).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'});
+        return `<div style="display:flex;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(51,65,85,0.3)">
+          <span style="color:var(--text-muted);min-width:50px">${t}</span>
+          <span style="color:var(--text-secondary)">${escapeHtml(h.message)}</span>
+        </div>`;
+      }).join('')
+    : '<div style="color:var(--text-muted);font-size:12px">히스토리 없음</div>';
+
+  // Documents HTML
+  const docsHTML = docs.length > 0
+    ? docs.map(d => `<div style="font-size:12px;padding:3px 0">📄 ${escapeHtml(d.file)} <span style="color:var(--text-muted)">.${d.format}</span></div>`).join('')
+    : '<div style="color:var(--text-muted);font-size:12px">산출물 없음</div>';
+
+  // Comments HTML
+  const commentsHTML = comments.length > 0
+    ? comments.map(c => {
+        const isUser = c.from === 'user';
+        const bubbleStyle = isUser
+          ? 'background:rgba(59,130,246,0.15);border-left:3px solid var(--accent-blue)'
+          : 'background:rgba(100,116,139,0.1);border-left:3px solid var(--text-muted)';
+        const t = new Date(c.timestamp).toLocaleTimeString('ko-KR', {hour:'2-digit',minute:'2-digit'});
+        return `<div style="${bubbleStyle};padding:8px 12px;border-radius:6px;margin:4px 0">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+            <span style="font-weight:600;color:${isUser ? 'var(--accent-blue)' : 'var(--text-secondary)'}">${escapeHtml(c.from)}</span>
+            <span style="color:var(--text-muted)">${t}</span>
+          </div>
+          <div style="font-size:13px">${escapeHtml(c.message)}</div>
+        </div>`;
+      }).join('')
+    : '';
+
+  const statuses = ['todo','hold','claimed','in_progress','review','done'];
+  const statusLabels = {'todo':'📋 To Do','hold':'⏸ Hold','claimed':'👋 Claimed','in_progress':'🔄 Progress','review':'🔍 Review','done':'✅ Done'};
+  const priorityColors = {'low':'var(--text-muted)','medium':'var(--accent-blue)','high':'var(--accent-orange)','critical':'var(--accent-red)'};
 
   const modal = document.createElement('div');
   modal.className = 'task-modal-overlay';
   modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 
-  const statuses = ['todo', 'in_progress', 'done'];
-  const agents = ['web-developer', 'ai-trainer', 'algorithm-researcher', 'e2e-tester',
-                  'ux-designer', 'cuda-engineer', 'security-reviewer', 'tdd-guide',
-                  'doc-manager', 'inference-optimizer'];
-
   modal.innerHTML = `
-    <div class="task-modal">
-      <h3>${escapeHtml(task.title)}</h3>
+    <div class="task-modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:16px;flex:1">${escapeHtml(task.title)}</h3>
+        <span style="color:${priorityColors[task.priority] || 'var(--text-muted)'};font-size:12px;font-weight:600">${(task.priority||'medium').toUpperCase()}</span>
+      </div>
+
       <div style="margin:12px 0">
-        <label>Status:</label>
+        <label>상태:</label>
         <div class="status-buttons">
           ${statuses.map(s => `
-            <button class="status-btn ${s === task.status ? 'active' : ''}"
-                    onclick="updateTaskStatus('${taskId}', '${s}', this)">${s === 'todo' ? '📋 Todo' : s === 'in_progress' ? '🔄 In Progress' : '✅ Done'}</button>
+            <button class="status-btn ${s === task.status ? 'active' : ''}" style="font-size:11px;padding:6px"
+                    onclick="changeTaskStatus('${taskId}','${s}')">${statusLabels[s] || s}</button>
           `).join('')}
         </div>
       </div>
+
       <div style="margin:12px 0">
-        <label>Assign Agent:</label>
-        <select id="agentSelect" onchange="assignAgent('${taskId}', this.value)">
-          <option value="">-- select --</option>
-          ${agents.map(a => `<option value="${a}" ${a === (task.assignee || task.agent) ? 'selected' : ''}>${a}</option>`).join('')}
+        <label>담당 에이전트:</label>
+        ${agentInfo}
+        <select style="width:100%;padding:6px;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-size:13px"
+                onchange="changeTaskAgent('${taskId}',this.value)">
+          <option value="">-- 에이전트 선택 --</option>
+          ${agentList.map(a => `<option value="${a}" ${a === task.agent ? 'selected' : ''}>${a}</option>`).join('')}
         </select>
       </div>
-      <button class="close-btn" onclick="this.closest('.task-modal-overlay').remove()">Close</button>
+
+      <div style="margin:12px 0">
+        <label>목표:</label>
+        <textarea id="taskObjective" style="width:100%;height:60px;padding:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-size:13px;resize:vertical"
+                  onblur="saveObjective('${taskId}',this.value)">${escapeHtml(task.objective || '')}</textarea>
+      </div>
+
+      <div style="margin:12px 0">
+        <label>히스토리:</label>
+        <div style="max-height:120px;overflow-y:auto;background:var(--bg-primary);border-radius:6px;padding:8px">${historyHTML}</div>
+      </div>
+
+      <div style="margin:12px 0">
+        <label>산출물:</label>
+        <div style="background:var(--bg-primary);border-radius:6px;padding:8px">${docsHTML}</div>
+      </div>
+
+      <div style="margin:12px 0">
+        <label>에이전트 소통:</label>
+        <div id="commentArea" style="max-height:150px;overflow-y:auto;background:var(--bg-primary);border-radius:6px;padding:8px;margin-bottom:8px">
+          ${commentsHTML || '<div style="color:var(--text-muted);font-size:12px">메시지 없음</div>'}
+        </div>
+        <div style="display:flex;gap:8px">
+          <input id="commentInput" placeholder="메시지 입력..." style="flex:1;padding:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-size:13px"
+                 onkeydown="if(event.key==='Enter')sendComment('${taskId}')" />
+          <button onclick="sendComment('${taskId}')" style="padding:8px 16px;background:var(--accent-blue);color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px">전송</button>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;margin-top:16px">
+        <button onclick="deleteTaskConfirm('${taskId}')" style="padding:8px 16px;background:rgba(239,68,68,0.15);color:var(--accent-red);border:1px solid rgba(239,68,68,0.3);border-radius:6px;cursor:pointer;font-size:13px">삭제</button>
+        <button class="close-btn" style="width:auto;margin:0" onclick="this.closest('.task-modal-overlay').remove()">닫기</button>
+      </div>
     </div>
   `;
   document.body.appendChild(modal);
+}
+
+async function changeTaskStatus(taskId, newStatus) {
+  await fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus })
+  });
+  document.querySelector('.task-modal-overlay')?.remove();
+  fetchAndRender();
+}
+
+async function changeTaskAgent(taskId, agent) {
+  await fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent: agent, assignee: agent })
+  });
+  fetchAndRender();
+}
+
+async function saveObjective(taskId, objective) {
+  await fetch('/api/tasks/' + taskId, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ objective })
+  });
+}
+
+async function sendComment(taskId) {
+  const input = document.getElementById('commentInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+  await fetch('/api/tasks/' + taskId + '/comments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'user', message: msg })
+  });
+  input.value = '';
+  // Refresh the modal
+  document.querySelector('.task-modal-overlay')?.remove();
+  openTaskDetail(taskId);
+}
+
+async function deleteTaskConfirm(taskId) {
+  if (!confirm('이 태스크를 삭제하시겠습니까?')) return;
+  await fetch('/api/tasks/' + taskId, { method: 'DELETE' });
+  document.querySelector('.task-modal-overlay')?.remove();
+  fetchAndRender();
+}
+
+// --- Phase Detail Modal ---
+async function openPhaseDetail(phaseId) {
+  const res = await fetch('/api/phases/' + phaseId);
+  const data = await res.json();
+  if (!data) return;
+
+  const statusIcon = data.status === 'completed' ? '✅' : data.status === 'in_progress' ? '🔄' : '⬜';
+  const elapsed = data.startedAt ? getElapsedTime(data.startedAt) : '--';
+
+  const agentsHTML = (data.agents || []).map(a => {
+    const icon = a.status === 'running' ? '🔄' : a.status === 'completed' ? '✅' : '⏳';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px">
+      <span>${icon}</span>
+      <span style="font-weight:500;min-width:150px">${a.name}</span>
+      <span style="color:var(--text-muted);flex:1">${a.task || ''}</span>
+      <span style="font-size:11px;color:var(--text-muted)">${a.status}</span>
+    </div>`;
+  }).join('') || '<div style="color:var(--text-muted);font-size:12px">배정된 에이전트 없음</div>';
+
+  const tasksHTML = (data.tasks || []).map(t => {
+    const icon = t.status === 'done' ? '✅' : t.status === 'in_progress' ? '🔄' : '⬜';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer" onclick="document.querySelector('.task-modal-overlay')?.remove();openTaskDetail('${t.id}')">
+      <span>${icon}</span>
+      <span style="flex:1">${escapeHtml(t.title)}</span>
+      <span style="font-size:11px;color:var(--text-muted)">${t.status}</span>
+    </div>`;
+  }).join('') || '<div style="color:var(--text-muted);font-size:12px">태스크 없음</div>';
+
+  const docsHTML = (data.documents || []).map(d =>
+    `<div style="font-size:12px;padding:3px 0">📄 ${escapeHtml(d.file)} <span style="color:var(--text-muted)">.${d.format}</span></div>`
+  ).join('') || '<div style="color:var(--text-muted);font-size:12px">산출물 없음</div>';
+
+  const modal = document.createElement('div');
+  modal.className = 'task-modal-overlay';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  modal.innerHTML = `
+    <div class="task-modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="margin:0;font-size:16px">${statusIcon} Phase ${data.id}: ${escapeHtml(data.name)}</h3>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0;font-size:13px">
+        <div style="background:var(--bg-primary);padding:8px 12px;border-radius:6px">
+          <div style="color:var(--text-muted);font-size:11px">상태</div>
+          <div style="font-weight:600">${data.status}</div>
+        </div>
+        <div style="background:var(--bg-primary);padding:8px 12px;border-radius:6px">
+          <div style="color:var(--text-muted);font-size:11px">경과 시간</div>
+          <div style="font-weight:600">${elapsed}</div>
+        </div>
+        <div style="background:var(--bg-primary);padding:8px 12px;border-radius:6px">
+          <div style="color:var(--text-muted);font-size:11px">태스크</div>
+          <div style="font-weight:600">${data.tasksDone}/${data.tasksTotal} (${data.taskProgress}%)</div>
+        </div>
+        <div style="background:var(--bg-primary);padding:8px 12px;border-radius:6px">
+          <div style="color:var(--text-muted);font-size:11px">시작</div>
+          <div style="font-weight:600">${data.startedAt ? new Date(data.startedAt).toLocaleString('ko-KR') : '미시작'}</div>
+        </div>
+      </div>
+
+      <div style="margin:8px 0">
+        <div class="progress-bar-card"><div class="progress-fill-card" style="width:${data.taskProgress}%"></div></div>
+      </div>
+
+      <div style="margin:12px 0">
+        <label style="display:block;color:var(--text-muted);font-size:12px;margin-bottom:8px">담당 에이전트</label>
+        <div style="background:var(--bg-primary);border-radius:6px;padding:8px">${agentsHTML}</div>
+      </div>
+
+      <div style="margin:12px 0">
+        <label style="display:block;color:var(--text-muted);font-size:12px;margin-bottom:8px">이 Phase의 태스크</label>
+        <div style="background:var(--bg-primary);border-radius:6px;padding:8px">${tasksHTML}</div>
+      </div>
+
+      <div style="margin:12px 0">
+        <label style="display:block;color:var(--text-muted);font-size:12px;margin-bottom:8px">산출물</label>
+        <div style="background:var(--bg-primary);border-radius:6px;padding:8px">${docsHTML}</div>
+      </div>
+
+      <button class="close-btn" onclick="this.closest('.task-modal-overlay').remove()">닫기</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+// --- Project Delete ---
+function deleteProjectConfirm(projectId) {
+  const project = (state.projects || []).find(p => p.id === projectId);
+  if (!project) return;
+
+  const modal = document.createElement('div');
+  modal.className = 'task-modal-overlay';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div class="task-modal" style="max-width:420px">
+      <h3 style="color:var(--accent-red)">⚠️ 프로젝트 삭제</h3>
+      <p style="font-size:13px;color:var(--text-secondary);margin:12px 0;line-height:1.6">
+        "<b>${escapeHtml(project.name)}</b>" 프로젝트를 삭제하면<br>
+        모든 태스크, 히스토리, 산출물 기록이<br>
+        <b style="color:var(--accent-red)">영구적으로 삭제</b>됩니다.
+      </p>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">삭제하려면 프로젝트 이름을 정확히 입력하세요:</p>
+      <input id="deleteProjectConfirmInput" placeholder="${escapeHtml(project.name)}" style="width:100%;padding:8px;background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--accent-red);border-radius:6px;font-size:14px" />
+      <div class="modal-actions" style="margin-top:12px">
+        <button onclick="executeDeleteProject('${projectId}','${escapeHtml(project.name)}')" style="background:var(--accent-red)">삭제</button>
+        <button onclick="this.closest('.task-modal-overlay').remove()">취소</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function executeDeleteProject(projectId, projectName) {
+  const input = document.getElementById('deleteProjectConfirmInput');
+  if (input.value.trim() !== projectName) {
+    alert('프로젝트 이름이 일치하지 않습니다.');
+    return;
+  }
+  await fetch('/api/projects/' + projectId, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmName: projectName })
+  });
+  document.querySelector('.task-modal-overlay')?.remove();
+  activeProjectFilter = 'all';
+  fetchAndRender();
 }
 
 function updateTaskStatus(taskId, newStatus, btn) {
@@ -619,16 +936,23 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function formatDuration(ms) {
+  if (!ms || ms < 0) return '--';
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return secs + 's';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + 'm ' + (secs % 60) + 's';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ' + (mins % 60) + 'm';
+  const days = Math.floor(hrs / 24);
+  return days + 'd ' + (hrs % 24) + 'h';
+}
+
 function getTimeAgo(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  const days = Math.floor(hrs / 24);
-  return days + 'd ago';
+  if (diff < 60000) return 'just now';
+  return formatDuration(diff) + ' ago';
 }
 
 function formatTime(dateStr) {
@@ -637,28 +961,17 @@ function formatTime(dateStr) {
 }
 
 function getElapsedTime(startedAt) {
-  if (!startedAt) return '--:--';
-  const diff = Date.now() - new Date(startedAt).getTime();
-  const secs = Math.floor(diff / 1000);
-  const mins = Math.floor(secs / 60);
-  const hrs = Math.floor(mins / 60);
-  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-  if (mins > 0) return `${mins}m ${secs % 60}s`;
-  return `${secs}s`;
+  if (!startedAt) return '--';
+  return formatDuration(Date.now() - new Date(startedAt).getTime());
 }
 
 function estimateRemaining(startedAt, progress) {
-  if (!startedAt || !progress || progress <= 0) return '--:--';
+  if (!startedAt || !progress || progress <= 0) return '--';
   if (progress >= 100) return '0s';
   const elapsed = Date.now() - new Date(startedAt).getTime();
   const totalEstimate = elapsed / (progress / 100);
   const remaining = totalEstimate - elapsed;
-  const secs = Math.max(0, Math.floor(remaining / 1000));
-  const mins = Math.floor(secs / 60);
-  const hrs = Math.floor(mins / 60);
-  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-  if (mins > 0) return `${mins}m ${secs % 60}s`;
-  return `${secs}s`;
+  return '~' + formatDuration(remaining);
 }
 
 // Auto-refresh elapsed times every second for running agents
