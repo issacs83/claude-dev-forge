@@ -1042,10 +1042,20 @@ async function renderDocuments() {
       const sizeStr = totalSize > 1048576 ? (totalSize / 1048576).toFixed(1) + ' MB' : (totalSize / 1024).toFixed(0) + ' KB';
       const fmtStats = Object.entries(data.formatCounts || {}).map(([f, c]) => `.${f}:${c}`).join(' | ');
 
-      let html = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">총 ${data.totalFiles}개 파일 | ${sizeStr} | ${fmtStats}</div>`;
+      // Toolbar: expand all / collapse all
+      let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(51,65,85,0.3)">
+        <span style="font-size:11px;color:var(--text-muted)">총 ${data.totalFiles}개 파일 | ${sizeStr} | ${fmtStats}</span>
+        <div style="display:flex;gap:4px">
+          <button onclick="document.querySelectorAll('.output-dir-body').forEach(e=>e.style.display='block');document.querySelectorAll('.dir-toggle').forEach(e=>e.textContent='−')"
+                  style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:3px;padding:2px 6px;font-size:10px;cursor:pointer" title="전체 확장">▼ All</button>
+          <button onclick="document.querySelectorAll('.output-dir-body').forEach(e=>e.style.display='none');document.querySelectorAll('.dir-toggle').forEach(e=>e.textContent='+')"
+                  style="background:var(--bg-hover);color:var(--text-secondary);border:none;border-radius:3px;padding:2px 6px;font-size:10px;cursor:pointer" title="전체 축소">▲ All</button>
+        </div>
+      </div>`;
 
-      // Group by directory
+      // Group by directory — default collapsed
       const groups = data.groups || {};
+      let dirIdx = 0;
       Object.keys(groups).sort().forEach(dir => {
         const g = groups[dir];
         let dirFiles = g.files || [];
@@ -1054,9 +1064,14 @@ async function renderDocuments() {
         }
         if (dirFiles.length === 0) return;
 
-        html += `<div style="margin-bottom:8px">`;
-        html += `<div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">📁 ${escapeHtml(dir)} (${dirFiles.length})</div>`;
-        html += `<div>`;
+        const dirId = 'outdir-' + (dirIdx++);
+        html += `<div style="margin-bottom:4px">`;
+        html += `<div style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 0" onclick="var b=document.getElementById('${dirId}');var t=this.querySelector('.dir-toggle');if(b.style.display==='none'){b.style.display='block';t.textContent='−'}else{b.style.display='none';t.textContent='+'}">
+          <span class="dir-toggle" style="display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;background:var(--bg-hover);border-radius:3px;font-size:11px;color:var(--text-secondary);font-weight:700;flex-shrink:0">+</span>
+          <span style="font-size:12px;font-weight:500;color:var(--text-secondary)">📁 ${escapeHtml(dir)}</span>
+          <span style="font-size:10px;color:var(--text-muted)">(${dirFiles.length})</span>
+        </div>`;
+        html += `<div id="${dirId}" class="output-dir-body" style="display:none">`;
         dirFiles.forEach(f => {
           const icon = formatIcons[f.format] || '📄';
           const cat = f.category || 'document';
@@ -1065,7 +1080,7 @@ async function renderDocuments() {
           const fileName = f.path.split('/').pop();
           const fileSize = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : f.size > 1024 ? (f.size/1024).toFixed(0)+'KB' : f.size+'B';
           const fileUrl = '/files/' + encodeURI(f.path);
-          html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 16px;font-size:12px">
+          html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 24px;font-size:12px">
             <span>${icon}</span>
             <a href="${fileUrl}" target="_blank" style="flex:1;color:var(--text-primary);text-decoration:none" onclick="event.preventDefault();openFile('${fileUrl}','${escapeHtml(fileName)}')"
                onmouseover="this.style.color='var(--accent-blue)'" onmouseout="this.style.color='var(--text-primary)'">${escapeHtml(fileName)}</a>
