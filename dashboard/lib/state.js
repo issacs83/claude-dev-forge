@@ -41,6 +41,15 @@ class StateManager {
 
     switch (event.type) {
       case 'agent_start':
+        // Block agent_start if the task is already done or approved
+        const taskForAgent = this.tasks.find(t =>
+          t.agent === event.agent && (t.title === event.task || t.phase === event.phase)
+        );
+        if (taskForAgent && (taskForAgent.status === 'done' || (taskForAgent.approval && taskForAgent.approval.status === 'approved'))) {
+          // Task already done — ignore this agent_start to prevent re-triggering
+          break;
+        }
+
         this.agents[event.agent] = {
           name: event.agent,
           status: 'running',

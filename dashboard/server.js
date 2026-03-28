@@ -181,21 +181,20 @@ setInterval(() => {
   });
 
   // --- Zombie Agent Cleanup ---
-  // Running agents with no matching in_progress task and no progress for 10 min → auto-complete
-  const AGENT_ZOMBIE_MS = 10 * 60 * 1000;
+  // Running agents whose tasks are done/not-in-progress → auto-complete immediately
   Object.entries(agents).forEach(([name, agent]) => {
     if (agent.status !== 'running') return;
-    const startedAt = new Date(agent.startedAt || 0).getTime();
-    const elapsed = now - startedAt;
-    const hasActiveTask = tasks.some(t => t.agent === name && t.status === 'in_progress');
 
-    if (!hasActiveTask && elapsed > AGENT_ZOMBIE_MS && (agent.progress || 0) === 0) {
+    // Find if this agent has any active (in_progress) task
+    const hasActiveTask = tasks.some(t => t.agent === name && t.status === 'in_progress');
+    // Find if this agent's task is done
+    const hasDoneTask = tasks.some(t => t.agent === name && t.status === 'done');
+
+    if (hasDoneTask || !hasActiveTask) {
       agent.status = 'completed';
       agent.progress = 100;
       agent.completedAt = new Date().toISOString();
       agent._zombieCleanup = true;
-      broadcast({ type: 'state_update', data: state.getFullState() });
-      saveState();
     }
   });
 
