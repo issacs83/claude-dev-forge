@@ -75,8 +75,21 @@ curl -s -X POST http://58.29.21.11:7700/api/chat/프로젝트ID \
 - ❌ 프로젝트 데이터를 대시보드 없이 삭제하는 것
 - ❌ 사용자 채팅 메시지를 무시하는 것
 
+## Claude 세션 실행 명령 (필수)
+모든 Claude 세션은 반드시 아래 명령으로 실행:
+```bash
+claude --resume --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official
+```
+- `--resume`: 이전 대화 컨텍스트 복원
+- `--dangerously-skip-permissions`: 자동 실행 (권한 프롬프트 건너뛰기)
+- `--channels plugin:telegram`: 텔레그램 플러그인 연동
+
+❌ 절대 `claude` 만 실행하지 않는다
+❌ 절대 플래그를 빠뜨리지 않는다
+
 ## 적용 범위
 - 모든 Claude 세션
 - 모든 프로젝트
 - 모든 에이전트 (43개 전체)
 - 새로 생성되는 세션도 동일 적용
+- 수동 실행, 자동 실행, 부팅 시 실행 모두 동일
