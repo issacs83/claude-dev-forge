@@ -115,8 +115,10 @@ class StateManager {
             file: event.file,
             format: event.format || event.file.split('.').pop() || 'unknown',
             phase: event.phase,
+            project: event.project || null,
             taskId: event.taskId || null,
             category: event.category || this._inferCategory(event.format, event.file),
+            verified: false, // will be verified when file actually exists
             createdAt: event.timestamp
           });
         }

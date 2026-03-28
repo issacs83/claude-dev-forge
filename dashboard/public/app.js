@@ -965,11 +965,11 @@ function renderAgents() {
 
 function renderDocuments() {
   const list = document.getElementById('docList');
-  let docs = state.documents || [];
+  let docs = (state.documents || []).filter(d => d.file);
 
-  if (!docs.length) {
-    list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">산출물 없음</div>';
-    return;
+  // Project filter — match active project filter
+  if (activeProjectFilter !== 'all') {
+    docs = docs.filter(d => d.project === activeProjectFilter);
   }
 
   // Category filter
@@ -980,7 +980,12 @@ function renderDocuments() {
   }
 
   if (!docs.length) {
-    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px">"${categoryFilter}" 카테고리 산출물 없음</div>`;
+    const filterMsg = activeProjectFilter !== 'all'
+      ? '선택된 프로젝트에 산출물 없음'
+      : categoryFilter !== 'all'
+        ? `"${categoryFilter}" 카테고리 산출물 없음`
+        : '산출물 없음 — 에이전트가 작업을 완료하면 여기에 표시됩니다';
+    list.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:16px;font-size:13px">${filterMsg}</div>`;
     return;
   }
 
@@ -1133,6 +1138,7 @@ async function createProject() {
 function onProjectFilterChange() {
   activeProjectFilter = document.getElementById('projectFilter').value;
   renderKanban();
+  renderDocuments();
 }
 
 // --- Drag & Drop ---

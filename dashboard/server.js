@@ -187,14 +187,32 @@ app.get('/api/timeline', (req, res) => {
   res.json(state.getTimeline());
 });
 
-// Get documents (with optional category filter)
+// Get documents (with project/category/phase filter, verify file exists)
 app.get('/api/documents', (req, res) => {
   let docs = state.getDocuments();
+
+  // Project filter
+  if (req.query.project) {
+    docs = docs.filter(d => d.project === req.query.project);
+  }
+  // Category filter
   if (req.query.category) {
     docs = docs.filter(d => d.category === req.query.category);
   }
+  // Phase filter
   if (req.query.phase !== undefined) {
     docs = docs.filter(d => d.phase === parseInt(req.query.phase));
+  }
+  // Verify only — only return docs where file actually exists
+  if (req.query.verified === 'true') {
+    docs = docs.filter(d => {
+      if (!d.file) return false;
+      const projects = state.getProjects();
+      for (const p of projects) {
+        if (p.projectDir && fs.existsSync(path.join(p.projectDir, d.file))) return true;
+      }
+      return fs.existsSync(path.join('/home/issacs/sessions', d.file));
+    });
   }
   res.json(docs);
 });
