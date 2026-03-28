@@ -1,0 +1,2 @@
+- [Project Overview](project_overview.md) — claude-dev-forge: Claude Code dev framework with 43 agents, dashboard, PDLC pipeline
+- [Dashboard Architecture](dashboard_arch.md) — Jun.AI dashboard: Express+WS server, kanban board, state persistence, tmux session mgmt
