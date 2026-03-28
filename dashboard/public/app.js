@@ -129,11 +129,6 @@ function renderKanban() {
     const countId = 'count' + capitalize(status);
     const el = document.getElementById(countId);
     if (el) el.textContent = cols[status].length;
-
-    // Bind drop events on column body
-    container.ondragover = (e) => { e.preventDefault(); container.classList.add('drag-over'); };
-    container.ondragleave = () => { container.classList.remove('drag-over'); };
-    container.ondrop = (e) => { e.preventDefault(); container.classList.remove('drag-over'); onDrop(e, status); };
   });
 }
 
@@ -208,8 +203,7 @@ function renderCard(task) {
   }
 
   return `
-    <div class="task-card ${isWorking ? 'working' : ''}" data-id="${task.id}" draggable="true"
-         ondragstart="onDragStart(event)" onclick="openTaskDetail('${task.id}')">
+    <div class="task-card ${isWorking ? 'working' : ''}" data-id="${task.id}" draggable="true">
       <div class="card-top">
         <span class="card-title">${escapeHtml(task.title)}</span>
         <span class="priority-badge ${priorityClass}">${capitalize(task.priority || 'medium')}</span>
@@ -229,37 +223,72 @@ function renderCard(task) {
   `;
 }
 
-// --- Drag & Drop ---
-function onDragStart(event) {
-  event.dataTransfer.setData('text/plain', event.target.dataset.id);
-  event.target.classList.add('dragging');
-  event.stopPropagation();
-}
+// --- Drag & Drop (event delegation) ---
+let _draggedTaskId = null;
 
-function allowDrop(event) {
-  event.preventDefault();
-  event.currentTarget.classList.add('drop-target');
-}
+// Global drag event listeners on the kanban board
+document.addEventListener('DOMContentLoaded', () => {
+  initDragAndDrop();
+});
 
-function onDragLeave(event) {
-  event.currentTarget.classList.remove('drop-target');
-}
+function initDragAndDrop() {
+  const board = document.getElementById('kanbanBoard');
+  if (!board) { setTimeout(initDragAndDrop, 200); return; }
 
-// Column-level drop handler (from HTML inline events)
-function onColumnDrop(event, newStatus) {
-  event.preventDefault();
-  event.currentTarget.classList.remove('drop-target');
-  const taskId = event.dataTransfer.getData('text/plain');
-  if (!taskId) return;
-  moveTask(taskId, newStatus);
-}
+  // Dragstart — capture which card is being dragged
+  board.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('.task-card');
+    if (!card) return;
+    _draggedTaskId = card.dataset.id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _draggedTaskId);
+  });
 
-// Also handle drops on column-body (from renderKanban bindings)
-function onDrop(event, newStatus) {
-  event.preventDefault();
-  const taskId = event.dataTransfer.getData('text/plain');
-  if (!taskId) return;
-  moveTask(taskId, newStatus);
+  // Dragend — cleanup
+  board.addEventListener('dragend', (e) => {
+    const card = e.target.closest('.task-card');
+    if (card) card.classList.remove('dragging');
+    document.querySelectorAll('.kanban-column').forEach(c => c.classList.remove('drop-target'));
+    _draggedTaskId = null;
+  });
+
+  // Dragover — allow drop on columns
+  board.addEventListener('dragover', (e) => {
+    const col = e.target.closest('.kanban-column');
+    if (!col) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    col.classList.add('drop-target');
+  });
+
+  // Dragleave — remove highlight
+  board.addEventListener('dragleave', (e) => {
+    const col = e.target.closest('.kanban-column');
+    if (col && !col.contains(e.relatedTarget)) {
+      col.classList.remove('drop-target');
+    }
+  });
+
+  // Drop — move the task
+  board.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const col = e.target.closest('.kanban-column');
+    if (!col) return;
+    col.classList.remove('drop-target');
+    const taskId = e.dataTransfer.getData('text/plain') || _draggedTaskId;
+    if (!taskId) return;
+    const newStatus = col.dataset.status;
+    if (newStatus) moveTask(taskId, newStatus);
+  });
+
+  // Card click — open detail (but not during drag)
+  board.addEventListener('click', (e) => {
+    if (_draggedTaskId) return; // ignore clicks during drag
+    const card = e.target.closest('.task-card');
+    if (!card) return;
+    openTaskDetail(card.dataset.id);
+  });
 }
 
 async function moveTask(taskId, newStatus) {
