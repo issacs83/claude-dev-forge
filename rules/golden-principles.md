@@ -5,6 +5,13 @@
 작업 순서: agent_start 보고 → 작업 수행 → progress 보고 → agent_complete 보고
 See `rules/dashboard-first.md` for full protocol. 예외 없음.
 
+## 0.5. Approval Gate (HARD GATE — 결재 필수)
+**모든 태스크의 상태 이동은 사용자 결재 승인 없이 불가능합니다.**
+- 작업 완료 → hold(결재대기) → 결재 요청 → 승인 시만 done
+- 반려 시 재검토 및 재수행
+- 에이전트가 자체적으로 done 처리 절대 금지
+See `rules/approval-gate.md` for full protocol. 예외 없음.
+
 ## 1. Read Before Write
 Always explore and understand existing code before making changes.
 Never modify files you haven't read. Use Glob/Grep/Read first.

@@ -1691,7 +1691,7 @@ async function updateTaskStatus(taskId, status, agent) {
 
   await fetch(`/api/tasks/${taskId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-User-Action': 'true' },
     body: JSON.stringify(body)
   });
 

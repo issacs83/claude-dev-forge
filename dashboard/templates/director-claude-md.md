@@ -76,10 +76,17 @@ cat /home/issacs/work/projects/claude-dev-forge/dashboard/data/chat/project-{{PR
 
 ### 상태 전환 흐름
 ```
-todo → claimed → in_progress → review → done
-                      ↕                   ↑
-                    hold (대기)    결재 승인 시
+todo → claimed → in_progress → review → [결재요청] → done
+                      ↕                                ↑
+                    hold (대기)                  결재 승인 시만
 ```
+
+### ⚠️ 결재 필수 규칙 (HARD GATE — 절대 위반 금지)
+**모든 태스크는 Done으로 이동하기 전에 반드시 사용자 결재를 받아야 합니다.**
+- in_progress 완료 → 그 상태 유지 또는 hold 이동 → 결재 요청 → 승인 후 done
+- **결재 없이 done으로 이동 절대 금지**
+- review 상태도 동일: review → 결재 요청 → 승인 → done
+- 반려 시: 사유 반영 후 재작업 → 재결재 요청
 
 ### 상태 변경 API
 ```bash

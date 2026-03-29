@@ -199,14 +199,15 @@ setInterval(() => {
   });
 
   // --- Team Lead (project-director) auto-management ---
-  // Auto-mark tasks done when agent is completed
+  // Agent completed → move task to hold (pending approval), NOT auto-done
   tasks.forEach(task => {
     if (task.status !== 'in_progress' || !task.agent) return;
     const agent = agents[task.agent];
     if (agent && agent.status === 'completed') {
-      task.status = 'done';
+      task.status = 'hold';
       task.updatedAt = new Date().toISOString();
-      state._addHistory(task.id, 'auto_done', `${task.agent} 완료 → 자동 Done`);
+      task._pendingApproval = true;
+      state._addHistory(task.id, 'pending_approval', `${task.agent} 완료 → 결재 대기 (hold)`);
       broadcast({ type: 'state_update', data: state.getFullState() });
       saveState();
     }
@@ -575,14 +576,36 @@ app.post('/api/tasks', (req, res) => {
 app.patch('/api/tasks/:id', (req, res) => {
   const oldTask = state.getTask(req.params.id);
   const oldStatus = oldTask ? oldTask.status : null;
+  const newStatus = req.body.status;
+  const isUserAction = req.headers['x-user-action'] === 'true';
 
-  // GUARD: prevent done/approved tasks from being moved backwards
-  if (oldTask && oldTask.status === 'done' && req.body.status && req.body.status !== 'done') {
-    // Only allow done→other if explicitly requested by user (not auto-dispatch)
-    const isUserAction = req.headers['x-user-action'] === 'true';
-    if (!isUserAction) {
-      return res.json(oldTask); // Silently ignore — don't change status
+  // GUARD: ALL status changes require user approval (HARD GATE)
+  // Only user-initiated actions (dashboard UI with x-user-action header) can change status
+  // Exceptions: agent can move to hold (for approval waiting), system timeout→todo
+  if (oldTask && newStatus && newStatus !== oldStatus && !isUserAction) {
+    const allowedAgentTransitions = [
+      // Agents can only: claim, start work, move to hold, or move to review
+      `todo→claimed`,
+      `claimed→in_progress`,
+      `in_progress→hold`,
+      `in_progress→review`,
+      `review→hold`,
+      `hold→in_progress`,  // after rejection, rework
+    ];
+    const transition = `${oldStatus}→${newStatus}`;
+    if (!allowedAgentTransitions.includes(transition)) {
+      return res.status(403).json({
+        error: 'Approval required',
+        message: `상태 이동 "${oldStatus} → ${newStatus}" 은 사용자 결재가 필요합니다. /api/tasks/${oldTask.id}/approval 로 결재를 요청하세요.`,
+        currentStatus: oldStatus,
+        requestedStatus: newStatus
+      });
     }
+  }
+
+  // GUARD: prevent done tasks from being moved backwards without user action
+  if (oldTask && oldTask.status === 'done' && newStatus && newStatus !== 'done' && !isUserAction) {
+    return res.json(oldTask); // Silently ignore
   }
 
   const task = state.updateTask(req.params.id, req.body);
@@ -810,8 +833,12 @@ app.post('/api/tasks/:id/approve', (req, res) => {
   task.approval = task.approval || {};
   task.approval.status = 'approved';
   task.approval.respondedAt = new Date().toISOString();
+  // Approval = move to done
+  const oldStatus = task.status;
+  task.status = 'done';
+  task._pendingApproval = false;
   task.updatedAt = new Date().toISOString();
-  state._addHistory(task.id, 'approval_approved', '결재 승인됨');
+  state._addHistory(task.id, 'approval_approved', `결재 승인됨 (${oldStatus} → done)`);
   saveState();
 
   broadcast({ type: 'approval_response', data: { taskId: task.id, status: 'approved' } });

@@ -191,12 +191,127 @@ curl -X POST http://58.29.21.11:7700/api/notify \\
       ]
     },
     {
-      group: 'Phases',
+      group: 'Approval (결재)',
       routes: [
         {
-          method: 'GET', path: '/api/phases',
-          desc: 'PDLC 12단계 상태 조회',
-          response: '[{ id: 0-11, name, status: "pending"|"in_progress"|"completed", startedAt, completedAt }]'
+          method: 'POST', path: '/api/tasks/:id/approval',
+          desc: '결재 요청 — 태스크 완료 후 사용자 승인 요청 (텔레그램 알림 자동 발송)',
+          body: '{ summary?: string, deliverables?: string[] }',
+          response: '{ ok: true, approval: { status: "pending", summary, deliverables, requestedAt } }',
+          example: `curl -X POST http://58.29.21.11:7700/api/tasks/48/approval \\
+  -H 'Content-Type: application/json' \\
+  -d '{"summary":"텔레그램 bridge grammy 교체 완료","deliverables":["bridge.js","package.json"]}'`
+        },
+        {
+          method: 'POST', path: '/api/tasks/:id/approve',
+          desc: '결재 승인 — 태스크 승인 처리 (Claude 세션에 자동 전달)',
+          response: '{ ok: true, status: "approved" }'
+        },
+        {
+          method: 'POST', path: '/api/tasks/:id/reject',
+          desc: '결재 반려 — 태스크 반려 후 in_progress로 복귀 (재작업 지시)',
+          body: '{ reason?: string }',
+          response: '{ ok: true, status: "rejected" }'
+        }
+      ]
+    },
+    {
+      group: 'Chat',
+      routes: [
+        {
+          method: 'GET', path: '/api/chat/:projectId',
+          desc: '프로젝트 채팅 메시지 목록 조회',
+          response: '[{ id, from, message, type, fileName, fileUrl, timestamp }]'
+        },
+        {
+          method: 'POST', path: '/api/chat/:projectId',
+          desc: '프로젝트 채팅에 메시지 전송 (에이전트 → 사용자)',
+          body: '{ from: string, message: string }',
+          response: '{ id, from, message, type, fileName, fileUrl, timestamp }'
+        }
+      ]
+    },
+    {
+      group: 'Telegram',
+      routes: [
+        {
+          method: 'POST', path: '/api/telegram/token',
+          desc: '프로젝트별 텔레그램 봇 토큰 저장',
+          body: '{ projectId: string, token: string }',
+          response: '{ ok: true }'
+        },
+        {
+          method: 'GET', path: '/api/telegram/token/:projectId',
+          desc: '프로젝트 텔레그램 봇 토큰 조회',
+          response: '{ token, updatedAt }'
+        },
+        {
+          method: 'GET', path: '/api/telegram/tokens',
+          desc: '전체 텔레그램 토큰 목록',
+          response: '{ [projectId]: { token, updatedAt } }'
+        },
+        {
+          method: 'GET', path: '/api/telegram/detect',
+          desc: '시스템에서 텔레그램 토큰 자동 검색',
+          response: '[{ path, label, token }]'
+        },
+        {
+          method: 'DELETE', path: '/api/telegram/token/:projectId',
+          desc: '프로젝트 텔레그램 토큰 삭제',
+          response: '{ ok: true }'
+        }
+      ]
+    },
+    {
+      group: 'Upload',
+      routes: [
+        {
+          method: 'POST', path: '/api/upload',
+          desc: '파일 업로드 (base64 → 서버 저장)',
+          body: '{ data: string (base64), fileName?: string, type?: string }',
+          response: '{ ok: true, url: string, fileName: string, size: number }'
+        }
+      ]
+    },
+    {
+      group: 'Notifications (알림)',
+      routes: [
+        {
+          method: 'GET', path: '/api/notifications',
+          desc: '알림 목록 조회 (?unread=true로 읽지 않은 것만)',
+          response: '[{ id, title, message, read, createdAt }]'
+        },
+        {
+          method: 'POST', path: '/api/notifications/read',
+          desc: '알림 읽음 처리 (id 지정 시 단일, 미지정 시 전체)',
+          body: '{ id?: string }',
+          response: '{ ok: true }'
+        }
+      ]
+    },
+    {
+      group: 'Backup',
+      routes: [
+        {
+          method: 'GET', path: '/api/backups',
+          desc: '백업 파일 목록 조회',
+          response: '[{ file, size, date }]'
+        },
+        {
+          method: 'POST', path: '/api/restore',
+          desc: '백업에서 상태 복원',
+          body: '{ backupFile: string }',
+          response: '{ ok: true, message, projects, tasks }'
+        }
+      ]
+    },
+    {
+      group: 'Project Outputs',
+      routes: [
+        {
+          method: 'GET', path: '/api/projects/:id/outputs',
+          desc: '프로젝트 디렉토리의 실제 파일 목록 스캔',
+          response: '{ files: [{ path, fullPath, format }], count: number }'
         }
       ]
     },
