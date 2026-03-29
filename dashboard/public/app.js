@@ -1516,6 +1516,28 @@ function showNewProjectModal() {
 
   // Load existing telegram tokens
   loadExistingTelegramTokens();
+
+  // Set initial project type state
+  onProjectTypeChange();
+}
+
+function onProjectTypeChange() {
+  const type = document.getElementById('setupProjectType').value;
+  const phaseDiv = document.getElementById('phaseCheckboxes');
+  if (!phaseDiv) return;
+  const checkboxes = phaseDiv.querySelectorAll('input[type="checkbox"]');
+
+  if (type === 'kanban') {
+    phaseDiv.style.display = 'none';
+    checkboxes.forEach(cb => cb.checked = false);
+  } else if (type === 'lite') {
+    phaseDiv.style.display = 'grid';
+    const litePhases = [4, 5, 8, 9, 11];
+    checkboxes.forEach(cb => { cb.checked = litePhases.includes(parseInt(cb.value)); cb.disabled = true; });
+  } else {
+    phaseDiv.style.display = 'grid';
+    checkboxes.forEach(cb => { cb.checked = true; cb.disabled = false; });
+  }
 }
 
 async function loadExistingTelegramTokens() {
@@ -1545,17 +1567,18 @@ async function setupProject() {
   if (!name) { alert('프로젝트 이름을 입력하세요'); return; }
   const description = document.getElementById('setupProjectDesc').value.trim();
   const domain = document.getElementById('setupProjectDomain').value;
+  const projectType = document.getElementById('setupProjectType').value;
 
   // Collect selected phases
   const checkboxes = document.querySelectorAll('#phaseCheckboxes input[type="checkbox"]:checked');
   const phases = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
-  if (phases.length === 0) { alert('최소 1개 이상의 Phase를 선택하세요'); return; }
+  if (projectType !== 'kanban' && phases.length === 0) { alert('최소 1개 이상의 Phase를 선택하세요'); return; }
 
   const res = await fetch('/api/projects/setup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description, domain, phases })
+    body: JSON.stringify({ name, description, domain, phases, projectType })
   });
   const data = await res.json();
 

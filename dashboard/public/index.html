@@ -229,6 +229,13 @@
       <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">설명</label>
       <input id="setupProjectDesc" placeholder="프로젝트 목표 및 범위" />
 
+      <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">프로젝트 유형</label>
+      <select id="setupProjectType" onchange="onProjectTypeChange()">
+        <option value="full">Full PDLC (신규 개발 — 12단계 전체)</option>
+        <option value="lite">Lite PDLC (기능 추가/개선 — 5단계)</option>
+        <option value="kanban">Kanban (유지보수/버그픽스 — 칸반만)</option>
+      </select>
+
       <label style="color:var(--text-secondary);font-size:12px;margin-top:8px">도메인</label>
       <select id="setupProjectDomain">
         <option value="general">General (범용)</option>

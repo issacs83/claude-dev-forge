@@ -625,11 +625,14 @@ app.patch('/api/tasks/:id', (req, res) => {
 
 // Project setup — creates project + PDLC phase tasks + initial agents
 app.post('/api/projects/setup', (req, res) => {
-  const { name, description, domain, phases } = req.body;
+  const { name, description, domain, phases, projectType } = req.body;
   if (!name) return res.status(400).json({ error: 'Project name required' });
 
+  // Project types: full (12 phases), lite (5 phases), kanban (no phases)
+  const type = projectType || 'full';
+
   // 1. Create project
-  const project = state.createProject({ name, description: description || '', domain: domain || 'general', status: 'active' });
+  const project = state.createProject({ name, description: description || '', domain: domain || 'general', status: 'active', projectType: type });
 
   // 2. Define PDLC phases with default agents and objectives
   const pdlcPhases = [
@@ -659,10 +662,19 @@ app.post('/api/projects/setup', (req, res) => {
   const phase6Agents = domainAgents[domain] || domainAgents['general'];
   pdlcPhases[6].agents = phase6Agents;
 
-  // 3. Filter phases if subset requested
-  const activePhases = phases && phases.length > 0
-    ? pdlcPhases.filter(p => phases.includes(p.phase))
-    : pdlcPhases;
+  // 3. Filter phases by project type or custom selection
+  let activePhases;
+  if (type === 'kanban') {
+    activePhases = []; // No PDLC phases — pure kanban
+  } else if (type === 'lite') {
+    // Lite: Requirements → Architecture → Implementation → Testing → Evaluation
+    const litePhaseIds = [4, 5, 8, 9, 11];
+    activePhases = pdlcPhases.filter(p => litePhaseIds.includes(p.phase));
+  } else if (phases && phases.length > 0) {
+    activePhases = pdlcPhases.filter(p => phases.includes(p.phase));
+  } else {
+    activePhases = pdlcPhases; // Full PDLC
+  }
 
   // 4. Create tasks for each phase
   const tasks = activePhases.map(p => {
