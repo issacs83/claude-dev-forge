@@ -2519,6 +2519,22 @@ function handleChatFile(input) {
   input.value = '';
 }
 
+// Multiple file handler
+function handleChatFiles(input) {
+  const files = Array.from(input.files);
+  if (!files.length) return;
+  files.forEach(file => {
+    const reader = new FileReader();
+    const isImage = file.type.startsWith('image/');
+    reader.onload = (e) => {
+      _chatPendingFiles.push({ data: e.target.result, fileName: file.name, type: isImage ? 'image' : 'file' });
+      updateChatPreview();
+    };
+    reader.readAsDataURL(file);
+  });
+  input.value = '';
+}
+
 // --- Chat Notification Sound ---
 let _chatNotifAudio = null;
 function playChatNotifSound() {
