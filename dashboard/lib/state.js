@@ -16,6 +16,8 @@ class StateManager {
     this.comments = {}; // taskId → [comments]
     this.taskHistory = {}; // taskId → [history entries]
     this.notifications = []; // [{id, type, title, message, timestamp, read}]
+    this.activityLog = []; // [{id, timestamp, actor, action, resource, details, source}]
+    this.orgChart = {}; // agentName → { reportsTo, level, department, title }
   }
 
   _initPhases() {
@@ -50,6 +52,7 @@ class StateManager {
           break;
         }
 
+        const existingSkills = this.agents[event.agent] ? this.agents[event.agent].skills : undefined;
         this.agents[event.agent] = {
           name: event.agent,
           status: 'running',
@@ -57,7 +60,8 @@ class StateManager {
           task: event.task || '',
           progress: 0,
           startedAt: event.timestamp,
-          message: event.message || ''
+          message: event.message || '',
+          skills: event.skills || existingSkills || []
         };
         if (event.phase !== undefined && this.phases[event.phase]) {
           this.phases[event.phase].status = 'in_progress';
@@ -83,12 +87,14 @@ class StateManager {
           if (event.output_files) {
             this.agents[event.agent].outputFiles = event.output_files;
           }
-          // Auto-mark related in_progress tasks as done
+          // Approval Gate: move to hold (pending approval), NOT auto-done
           this.tasks.forEach(t => {
             if (t.agent === event.agent && t.status === 'in_progress') {
-              t.status = 'done';
+              t.status = 'hold';
+              t._pendingApproval = true;
+              t.holdReason = '에이전트 작업 완료 — 결재 대기';
               t.updatedAt = event.timestamp || new Date().toISOString();
-              this._addHistory(t.id, 'status_change', `in_progress → done (${event.agent} 완료)`);
+              this._addHistory(t.id, 'status_change', `in_progress → hold (${event.agent} 완료, 결재 대기)`);
             }
           });
         }
@@ -106,13 +112,15 @@ class StateManager {
         if (this.phases[event.phase]) {
           this.phases[event.phase].status = 'completed';
           this.phases[event.phase].completedAt = event.timestamp;
-          // Auto-complete all tasks in this phase
+          // Approval Gate: phase_complete moves remaining tasks to hold, NOT auto-done
           this.tasks.forEach(t => {
-            if (t.phase === event.phase && t.status !== 'done') {
+            if (t.phase === event.phase && t.status !== 'done' && t.status !== 'hold') {
               const oldStatus = t.status;
-              t.status = 'done';
+              t.status = 'hold';
+              t._pendingApproval = true;
+              t.holdReason = 'Phase 완료 — 결재 대기';
               t.updatedAt = event.timestamp || new Date().toISOString();
-              this._addHistory(t.id, 'status_change', `${oldStatus} → done (Phase 완료)`);
+              this._addHistory(t.id, 'status_change', `${oldStatus} → hold (Phase 완료, 결재 대기)`);
             }
           });
         }
@@ -201,7 +209,15 @@ class StateManager {
       project: data.project || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      comments: 0
+      comments: 0,
+      // Status transition metadata
+      holdReason: null,       // reason for moving to hold
+      reviewNote: null,       // note when moving to review
+      deliverables: [],       // list of output files linked at review time
+      claimedAt: null,        // ISO8601 — when task was claimed
+      reviewedAt: null,       // ISO8601 — when task moved to review
+      holdAt: null,           // ISO8601 — when task moved to hold
+      requiredSkills: data.requiredSkills || []  // skills required to execute this task
     };
     this.tasks.push(task);
     this._addHistory(task.id, 'created', `태스크 생성됨 (${task.status})`);
@@ -213,7 +229,8 @@ class StateManager {
     if (!task) return null;
     const oldStatus = task.status;
     const oldAgent = task.agent;
-    Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+    const now = new Date().toISOString();
+    Object.assign(task, updates, { updatedAt: now });
     // Track status change
     if (updates.dependencies) {
       task.dependencies = updates.dependencies;
@@ -229,6 +246,48 @@ class StateManager {
           task._blockedBy = unfinished;
         }
       }
+
+      // Auto-populate transition metadata based on new status
+      switch (updates.status) {
+        case 'claimed':
+          task.claimedAt = now;
+          break;
+        case 'hold':
+          task.holdAt = now;
+          // holdReason may be provided in updates; keep existing if not
+          if (updates.holdReason !== undefined) {
+            task.holdReason = updates.holdReason;
+          }
+          break;
+        case 'review':
+          task.reviewedAt = now;
+          if (updates.reviewNote !== undefined) {
+            task.reviewNote = updates.reviewNote;
+          }
+          // Auto-link agent deliverables: find documents matching task agent/phase
+          if (!task.deliverables || task.deliverables.length === 0) {
+            const agentDocs = this.documents
+              .filter(d => {
+                if (task.agent && d.agent === task.agent) return true;
+                if (task.phase !== undefined && d.phase === task.phase) return true;
+                if (d.taskId === task.id) return true;
+                return false;
+              })
+              .map(d => d.file)
+              .filter(Boolean);
+            if (agentDocs.length > 0) {
+              task.deliverables = agentDocs;
+            }
+          }
+          break;
+        case 'in_progress':
+          // Clear holdReason on restart
+          if (oldStatus === 'hold') {
+            task.holdReason = null;
+          }
+          break;
+      }
+
       this._addHistory(id, 'status_change', `${oldStatus} → ${updates.status}`);
     }
     // Track agent change
@@ -375,6 +434,9 @@ class StateManager {
   getTimeline() { return this.timeline; }
   getDocuments() { return this.documents.filter(d => d.file); }
 
+  // --- Org Chart ---
+  getOrgChart() { return this.orgChart; }
+
   // Remove orphan documents (no file field)
   cleanDocuments() {
     const before = this.documents.length;
@@ -445,6 +507,8 @@ class StateManager {
       taskHistory: this.taskHistory,
       commentIdCounter: this.commentIdCounter,
       notifications: this.notifications.slice(-200),
+      activityLog: this.activityLog.slice(-5000),
+      orgChart: this.orgChart,
       savedAt: new Date().toISOString()
     };
 
@@ -473,6 +537,8 @@ class StateManager {
       this.taskHistory = data.taskHistory || {};
       this.commentIdCounter = data.commentIdCounter || 0;
       this.notifications = data.notifications || [];
+      this.activityLog = data.activityLog || [];
+      this.orgChart = data.orgChart || {};
       console.log(`  ✓ Loaded: ${this.projects.length} projects, ${this.tasks.length} tasks`);
       return true;
     } catch (e) {
