@@ -68,6 +68,7 @@
       "Bash(pip install --user*)"
     ]
   },
+  "model": "opus",
   "hooks": {
     "PreToolUse": [
       {
@@ -160,13 +161,22 @@
       }
     ]
   },
-  "skipDangerousModePermissionPrompt": true,
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true
+  },
   "extraKnownMarketplaces": {
     "everything-claude-code": {
       "source": {
         "source": "github",
         "repo": "affaan-m/everything-claude-code"
       }
+    },
+    "superpowers-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers-marketplace"
+      }
     }
-  }
+  },
+  "skipDangerousModePermissionPrompt": true
 }

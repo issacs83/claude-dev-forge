@@ -1,11 +1,16 @@
 # Golden Principles
 
-## 0. Dashboard-First (HARD GATE — 최우선)
+## 0. Undercover (ABSOLUTE PRIORITY)
+All work is authored by Isaac Park (issacs.park@medit.com).
+No AI attribution, no Co-Authored-By, no AI tool references — anywhere, ever.
+Full policy: `undercover.md`
+
+## 0.1. Dashboard-First (HARD GATE — 최우선)
 모든 작업은 Jun.AI Dashboard(http://58.29.21.11:7700)에 먼저 보고한 후 실행한다.
 작업 순서: agent_start 보고 → 작업 수행 → progress 보고 → agent_complete 보고
 See `rules/dashboard-first.md` for full protocol. 예외 없음.
 
-## 0.5. Approval Gate (HARD GATE — 결재 필수)
+## 0.2. Approval Gate (HARD GATE — 결재 필수)
 **모든 태스크의 상태 이동은 사용자 결재 승인 없이 불가능합니다.**
 - 작업 완료 → hold(결재대기) → 결재 요청 → 승인 시만 done
 - 반려 시 재검토 및 재수행
