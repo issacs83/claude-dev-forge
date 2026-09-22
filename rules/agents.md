@@ -27,6 +27,16 @@
 | **product-strategist** | Roadmap, competitive analysis, market research |
 | **regulatory-specialist** | FDA, CE/MDR, ISO, IEC, risk management |
 
+## Design & Frontend Agents (UI/UX Team)
+| Agent | When to Use |
+|-------|-------------|
+| **ux-designer** | Information architecture, wireframes, user flows, UX spec |
+| **design-system-architect** | Design tokens, component contracts, visual consistency audit |
+| **frontend-engineer** | UI implementation craft — components, state, performance, a11y |
+| **interaction-engineer** | Drag, 8-direction resize, snap, keyboard parity, undo, persistence |
+| **visual-qa** | Judge the rendered screen. PASS/FAIL gate before completion |
+| **dashboard-ux-specialist** | Operational/monitoring UI — information priority, alarms, BMS/HMI |
+
 ## Merged Agents
 | Agent | Scope |
 |-------|-------|
@@ -38,7 +48,24 @@
 - Testing: `tdd-guide` for unit test writing, `qa-engineer` for test strategy/planning
 - Verification: `verify-agent` for pipeline execution, `qa-engineer` for test design
 - Documentation: `doc-manager` handles both writing and syncing
+- Web work: `web-developer` for fullstack (API, DB, auth, deploy), `frontend-engineer` for what the user sees
+- UI design: `ux-designer` for IA/wireframes/flows, `design-system-architect` for tokens/consistency
+- UI QA: `e2e-tester` for browser behaviour, `visual-qa` for how the rendered screen looks
+- Interaction: `interaction-engineer` owns gestures and keyboard; `frontend-engineer` owns everything else in the component
+- Operational screens: `dashboard-ux-specialist` sets information priority, `ux-designer` lays it out
 
 ## Model Assignment
-- **Opus** (12): Deep analysis, design, research — complex reasoning tasks
-- **Sonnet** (9): Implementation, build, execution — speed-first tasks
+- **Opus**: Deep analysis, design, research — complex reasoning tasks
+- **Sonnet**: Implementation, build, execution — speed-first tasks
+- UI/UX agents run on Opus: visual judgment and interaction design are reasoning tasks, not typing tasks
+
+## UI Pipeline
+For any user-facing work, run `/ui-build` (skill: `ui-orchestration`) rather than dispatching a single agent.
+The orchestrator routes, gates and iterates; it does not implement the UI itself.
+
+```
+ANALYZE → REQUIREMENT/DOMAIN → DESIGN → DESIGN SYSTEM(G1) → IMPLEMENT → INTERACTION
+        → BUILD/TEST(G2) → DOMAIN QA(G3) → VISUAL QA(G4) → FAIL? FIX → re-run G2..G4
+```
+
+Build-green is gate 2. Completion is gate 4.
