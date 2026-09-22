@@ -1,16 +1,16 @@
 # claude-dev-forge
 
-> Claude Code를 위한 범용 제품 개발 프레임워크 — 43개 에이전트, 33개 커맨드, 19개 스킬, 12개 훅, 13개 규칙, 5개 MCP 서버, 실시간 대시보드
+> Claude Code를 위한 범용 제품 개발 프레임워크 — 48개 에이전트, 35개 커맨드, 26개 스킬, 12개 훅, 20개 규칙, 5개 MCP 서버, 실시간 대시보드
 
 ## 특징
 
 | 구성요소 | 수량 | 설명 |
 |----------|------|------|
-| **에이전트** | 43 | 26 Opus (분석/설계) + 17 Sonnet (구현/실행) |
-| **커맨드** | 33 | PDLC + 코드 품질 + BSP/임베디드 + Git 워크플로우 |
-| **스킬** | 19 | 멀티스텝 워크플로우 + PDLC + 컨텍스트 관리 + 패턴 |
+| **에이전트** | 48 | 34 Opus (분석/설계/디자인) + 14 Sonnet (구현/실행) |
+| **커맨드** | 35 | PDLC + 코드 품질 + UI/UX + BSP/임베디드 + Git 워크플로우 |
+| **스킬** | 26 | 멀티스텝 워크플로우 + UI 오케스트레이션 + PDLC + 컨텍스트 관리 |
 | **훅** | 12 | 보안 6-layer + 품질 게이트 + 컨텍스트 추적 + 세션 관리 |
-| **규칙** | 13 | 코딩 원칙, 보안, 테스트, Git, PDLC, 워크플로우, 패턴 |
+| **규칙** | 20 | 코딩 원칙, 보안, 테스트, Git, PDLC, 디자인, 인터랙션, 한국어 UI |
 | **MCP** | 5 | memory, github, context7, fetch, jina-reader |
 | **대시보드** | 1 | Jun.AI 칸반 보드 (WebSocket 실시간) |
 
@@ -35,7 +35,7 @@ Phase 9: 테스트 → Phase 10: 검증 → Phase 11: 평가
 
 각 단계별 문서 산출물 자동 생성 (.docx, .pptx, .hwpx, .xlsx)
 
-## 에이전트 구성 (41개)
+## 에이전트 구성 (48개)
 
 ### 관리 에이전트
 | Agent | 모델 | 역할 |
@@ -69,8 +69,17 @@ Phase 9: 테스트 → Phase 10: 검증 → Phase 11: 평가
 | Agent | 모델 | 역할 |
 |-------|------|------|
 | voc-researcher | Opus | VOC 분석, 페르소나, 사용자 여정 |
-| ux-designer | Opus | UX 설계, 와이어프레임, Figma 연동 |
 | marketing-strategist | Opus | GTM 전략, 포지셔닝, 브랜딩 |
+
+### UI/UX 에이전트
+| Agent | 모델 | 역할 |
+|-------|------|------|
+| ux-designer | Opus | 정보구조, 와이어프레임, UX 플로우, Figma 연동 |
+| design-system-architect | Opus | 디자인 토큰 3계층, 컴포넌트 계약, 일관성 감사 |
+| frontend-engineer | Opus | UI 구현 — 컴포넌트, 상태, 성능, 접근성 |
+| interaction-engineer | Opus | 드래그, 8방향 리사이즈, 스냅, 키보드, Undo, 저장 |
+| visual-qa | Opus | 렌더된 화면 심사. 완료 전 PASS/FAIL 게이트 |
+| dashboard-ux-specialist | Opus | 운영/모니터링 UI — 정보 우선순위, 알람, BMS/HMI |
 
 ### 문서 생산 에이전트
 | Agent | 모델 | 출력 | 역할 |
@@ -123,6 +132,8 @@ Phase 9: 테스트 → Phase 10: 검증 → Phase 11: 평가
 ## 핵심 커맨드
 
 ```
+/ui-build        — UI/UX 게이트 파이프라인 (설계→토큰→구현→인터랙션→비주얼 QA)
+/visual-qa       — 렌더된 화면 심사 (PASS/FAIL)
 /lifecycle       — 전체 PDLC 파이프라인 실행
 /dashboard       — 실시간 모니터링 대시보드 시작
 /voc             — VOC 분석
